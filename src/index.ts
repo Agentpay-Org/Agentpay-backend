@@ -914,6 +914,23 @@ app.get("/api/v1/webhooks", (_req: Request, res: Response) => {
   res.json({ items });
 });
 
+/** Trigger a synthetic event for a webhook (no actual delivery yet). */
+app.post("/api/v1/webhooks/:id/test", (req: Request, res: Response) => {
+  const { id } = req.params;
+  const requestId = (req as Request & { id?: string }).id;
+  const hook = webhookStore.get(id);
+  if (!hook) {
+    res.status(404).json({
+      error: "not_found",
+      message: `webhook ${id} not registered`,
+      requestId,
+    });
+    return;
+  }
+  recordEvent("webhook.test", { id, url: hook.url });
+  res.json({ id, deliveredAt: Date.now(), simulated: true });
+});
+
 /** Update url and/or events on an existing webhook. */
 app.patch("/api/v1/webhooks/:id", (req: Request, res: Response) => {
   const { id } = req.params;
