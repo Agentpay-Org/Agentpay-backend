@@ -505,6 +505,26 @@ app.post("/api/v1/api-keys", (req: Request, res: Response) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Event log (in-memory append-only)
+// ─────────────────────────────────────────────────────────────────────────────
+// Every write entrypoint calls recordEvent so /api/v1/events is the
+// audit trail the operator dashboard reads. Capped at 10_000 entries
+// (oldest entries are evicted) so a single long-running process does
+// not balloon RSS unbounded.
+type AppEvent = {
+  id: string;
+  ts: number;
+  type: string;
+  payload: Record<string, unknown>;
+};
+const eventLog: AppEvent[] = [];
+const EVENT_LOG_CAP = 10_000;
+function recordEvent(type: string, payload: Record<string, unknown>) {
+  eventLog.push({ id: randomUUID(), ts: Date.now(), type, payload });
+  if (eventLog.length > EVENT_LOG_CAP) eventLog.shift();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Webhooks
 // ─────────────────────────────────────────────────────────────────────────────
 // In-memory map of webhook id -> { url, events }. CRUD endpoints land
