@@ -38,6 +38,27 @@ describe("AgentPay Backend", () => {
     assert.strictEqual(res.headers["x-request-id"], caller);
   });
 
+  it("disables a service then refuses usage with 409", async () => {
+    await request(app)
+      .post("/api/v1/services")
+      .send({ serviceId: "svc-dis", priceStroops: 10 });
+    await request(app)
+      .patch("/api/v1/services/svc-dis/disabled")
+      .send({ disabled: true });
+    const res = await request(app)
+      .post("/api/v1/usage")
+      .send({ agent: "a", serviceId: "svc-dis", requests: 1 });
+    assert.strictEqual(res.status, 409);
+    assert.strictEqual(res.body.error, "service_disabled");
+  });
+
+  it("exports usage as CSV with the expected header", async () => {
+    const res = await request(app).get("/api/v1/usage/export.csv");
+    assert.strictEqual(res.status, 200);
+    assert.ok(res.headers["content-type"].startsWith("text/csv"));
+    assert.ok(res.text.split("\n")[0].includes("agent,serviceId,total"));
+  });
+
   it("admin/pause blocks writes and unpause restores them", async () => {
     await request(app).post("/api/v1/admin/pause");
     const blocked = await request(app)
