@@ -32,6 +32,25 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// API keys
+// ─────────────────────────────────────────────────────────────────────────────
+// In-memory map of opaque api keys to { label, createdAt }. The CRUD
+// endpoints are wired in subsequent commits; this commit adds the
+// store and the optional X-API-Key recognition middleware that flags
+// req.apiKey for downstream handlers without yet rejecting unkeyed
+// requests (so the API stays open until the admin opts in).
+type ApiKeyRecord = { label: string; createdAt: number };
+const apiKeyStore = new Map<string, ApiKeyRecord>();
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const supplied = req.header("x-api-key");
+  if (typeof supplied === "string" && apiKeyStore.has(supplied)) {
+    (req as Request & { apiKey?: string }).apiKey = supplied;
+  }
+  next();
+});
+
 // Minimal in-process rate limiter: 60 requests per IP per 60 second
 // window. A sliding window keyed by source IP; in-memory so the limiter
 // resets on process restart.
