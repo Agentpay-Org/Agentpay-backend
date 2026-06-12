@@ -526,6 +526,22 @@ function recordEvent(type: string, payload: Record<string, unknown>) {
   if (eventLog.length > EVENT_LOG_CAP) eventLog.shift();
 }
 
+/**
+ * Read the event log. Supports ?since=<unix-ms> and ?limit (default 100,
+ * max EVENT_LOG_CAP) so dashboards can poll for new entries cheaply.
+ */
+app.get("/api/v1/events", (req: Request, res: Response) => {
+  const since = Number((req.query.since as string) ?? 0);
+  const limit = Math.min(
+    EVENT_LOG_CAP,
+    Math.max(1, Number((req.query.limit as string) ?? 100))
+  );
+  const items = eventLog
+    .filter((e) => e.ts >= since)
+    .slice(-limit);
+  res.json({ items });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Webhooks
 // ─────────────────────────────────────────────────────────────────────────────
