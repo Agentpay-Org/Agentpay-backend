@@ -160,6 +160,24 @@ app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", service: "agentpay-backend" });
 });
 
+/**
+ * Deeper health check including process uptime and memory.
+ * Reserved for the operator dashboard / load-balancer.
+ */
+app.get("/api/v1/health/deep", (_req: Request, res: Response) => {
+  const mem = process.memoryUsage();
+  res.json({
+    status: paused ? "paused" : "ok",
+    uptimeSeconds: Math.round(process.uptime()),
+    memory: {
+      rssMb: Math.round(mem.rss / 1024 / 1024),
+      heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
+    },
+    pid: process.pid,
+    node: process.version,
+  });
+});
+
 app.get("/api/v1/version", (_req: Request, res: Response) => {
   res.json({ version: "1.0.0" });
 });
