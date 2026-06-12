@@ -686,6 +686,39 @@ app.get("/api/v1/services/:serviceId", (req: Request, res: Response) => {
   res.json({ serviceId, ...meta });
 });
 
+/** Set description + owner metadata for a registered service. */
+app.put("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
+  const { serviceId } = req.params;
+  const requestId = (req as Request & { id?: string }).id;
+  if (!servicesStore.has(serviceId)) {
+    res.status(404).json({
+      error: "not_found",
+      message: `service ${serviceId} is not registered`,
+      requestId,
+    });
+    return;
+  }
+  const { description, owner } = req.body ?? {};
+  if (typeof description !== "string" || description.length > 256) {
+    res.status(400).json({
+      error: "invalid_request",
+      message: "description must be a string up to 256 chars",
+      requestId,
+    });
+    return;
+  }
+  if (typeof owner !== "string" || owner.length === 0 || owner.length > 256) {
+    res.status(400).json({
+      error: "invalid_request",
+      message: "owner must be a non-empty string up to 256 chars",
+      requestId,
+    });
+    return;
+  }
+  servicesMetadata.set(serviceId, { description, owner });
+  res.json({ serviceId, description, owner });
+});
+
 /** Read the description + owner metadata for a service. */
 app.get("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
   const { serviceId } = req.params;
