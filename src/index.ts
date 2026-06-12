@@ -862,6 +862,13 @@ function recordEvent(type: string, payload: Record<string, unknown>) {
  * Read the event log. Supports ?since=<unix-ms> and ?limit (default 100,
  * max EVENT_LOG_CAP) so dashboards can poll for new entries cheaply.
  */
+/** Count of events grouped by type. */
+app.get("/api/v1/events/summary", (_req: Request, res: Response) => {
+  const counts: Record<string, number> = {};
+  for (const e of eventLog) counts[e.type] = (counts[e.type] ?? 0) + 1;
+  res.json({ counts, total: eventLog.length });
+});
+
 app.get("/api/v1/events", (req: Request, res: Response) => {
   const since = Number((req.query.since as string) ?? 0);
   const limit = Math.min(
