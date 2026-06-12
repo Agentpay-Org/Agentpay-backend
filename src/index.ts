@@ -268,6 +268,7 @@ app.post("/api/v1/usage", (req: Request, res: Response) => {
   const total = Math.min(Number.MAX_SAFE_INTEGER, prev + requests);
   usageStore.set(key, total);
 
+  recordEvent("usage.recorded", { agent, serviceId, requests, total });
   res.status(201).json({ agent, serviceId, total });
 });
 
@@ -320,6 +321,7 @@ app.post("/api/v1/settle", (req: Request, res: Response) => {
   const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
   const billedStroops = requests * price;
   usageStore.set(key, 0);
+  recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
   res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
 });
 
