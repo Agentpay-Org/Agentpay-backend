@@ -524,6 +524,37 @@ app.get("/api/v1/agents/:agent/usage", (req: Request, res: Response) => {
 // Maps serviceId -> { priceStroops }. Process restart resets the map.
 const servicesStore = new Map<string, { priceStroops: number }>();
 
+/** Batched register/update for services. Up to 50 items per call. */
+app.post("/api/v1/services/bulk", (req: Request, res: Response) => {
+  const requestId = (req as Request & { id?: string }).id;
+  const { items } = req.body ?? {};
+  if (!Array.isArray(items) || items.length === 0 || items.length > 50) {
+    res.status(400).json({
+      error: "invalid_request",
+      message: "items must be 1-50 entries",
+      requestId,
+    });
+    return;
+  }
+  const results = items.map((it: { serviceId?: unknown; priceStroops?: unknown }, i: number) => {
+    const { serviceId, priceStroops } = it ?? {};
+    if (
+      typeof serviceId !== "string" ||
+      serviceId.length === 0 ||
+      serviceId.length > 128 ||
+      typeof priceStroops !== "number" ||
+      !Number.isInteger(priceStroops) ||
+      priceStroops < 0
+    ) {
+      return { index: i, ok: false, error: "invalid_item" };
+    }
+    const isNew = !servicesStore.has(serviceId);
+    servicesStore.set(serviceId, { priceStroops });
+    return { index: i, ok: true, serviceId, priceStroops, created: isNew };
+  });
+  res.status(201).json({ results });
+});
+
 /** Register a service with its per-request price. */
 app.post("/api/v1/services", (req: Request, res: Response) => {
   const { serviceId, priceStroops } = req.body ?? {};
