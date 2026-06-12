@@ -337,6 +337,32 @@ app.get("/api/v1/services", (_req: Request, res: Response) => {
   res.json({ services });
 });
 
+/**
+ * Revoke an API key by its 8-char prefix (avoids needing the full
+ * secret in revocation flows). 204 on success, 404 when no key
+ * matches.
+ */
+app.delete("/api/v1/api-keys/:prefix", (req: Request, res: Response) => {
+  const { prefix } = req.params;
+  let found: string | undefined;
+  for (const key of apiKeyStore.keys()) {
+    if (key.slice(0, 8) === prefix) {
+      found = key;
+      break;
+    }
+  }
+  if (!found) {
+    res.status(404).json({
+      error: "not_found",
+      message: `no api key with prefix ${prefix}`,
+      requestId: (req as Request & { id?: string }).id,
+    });
+    return;
+  }
+  apiKeyStore.delete(found);
+  res.status(204).send();
+});
+
 /** List api keys with their metadata; never returns the key itself. */
 app.get("/api/v1/api-keys", (_req: Request, res: Response) => {
   const items = Array.from(apiKeyStore.entries()).map(([key, meta]) => ({
