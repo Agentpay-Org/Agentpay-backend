@@ -914,6 +914,46 @@ app.get("/api/v1/webhooks", (_req: Request, res: Response) => {
   res.json({ items });
 });
 
+/** Update url and/or events on an existing webhook. */
+app.patch("/api/v1/webhooks/:id", (req: Request, res: Response) => {
+  const { id } = req.params;
+  const requestId = (req as Request & { id?: string }).id;
+  const existing = webhookStore.get(id);
+  if (!existing) {
+    res.status(404).json({
+      error: "not_found",
+      message: `webhook ${id} not registered`,
+      requestId,
+    });
+    return;
+  }
+  const { url, events } = req.body ?? {};
+  if (url !== undefined) {
+    if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: "url must be an http(s) URL up to 2048 chars",
+        requestId,
+      });
+      return;
+    }
+    existing.url = url;
+  }
+  if (events !== undefined) {
+    if (!Array.isArray(events) || events.length === 0 || events.some((e) => typeof e !== "string")) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: "events must be a non-empty array of strings",
+        requestId,
+      });
+      return;
+    }
+    existing.events = events;
+  }
+  webhookStore.set(id, existing);
+  res.json({ id, ...existing });
+});
+
 app.post("/api/v1/webhooks", (req: Request, res: Response) => {
   const { url, events } = req.body ?? {};
   const requestId = (req as Request & { id?: string }).id;
