@@ -38,6 +38,30 @@ describe("AgentPay Backend", () => {
     assert.strictEqual(res.headers["x-request-id"], caller);
   });
 
+  it("computes billing and drains on settle", async () => {
+    await request(app)
+      .post("/api/v1/services")
+      .send({ serviceId: "svc-bill", priceStroops: 50 });
+    await request(app)
+      .post("/api/v1/usage")
+      .send({ agent: "agent-bill", serviceId: "svc-bill", requests: 10 });
+    const quote = await request(app).get(
+      "/api/v1/billing/agent-bill/svc-bill"
+    );
+    assert.strictEqual(quote.status, 200);
+    assert.strictEqual(quote.body.requests, 10);
+    assert.strictEqual(quote.body.priceStroops, 50);
+    assert.strictEqual(quote.body.billedStroops, 500);
+
+    const settle = await request(app)
+      .post("/api/v1/settle")
+      .send({ agent: "agent-bill", serviceId: "svc-bill" });
+    assert.strictEqual(settle.body.billedStroops, 500);
+
+    const after = await request(app).get("/api/v1/usage/agent-bill/svc-bill");
+    assert.strictEqual(after.body.total, 0);
+  });
+
   it("registers and lists a service via /api/v1/services", async () => {
     const create = await request(app)
       .post("/api/v1/services")
