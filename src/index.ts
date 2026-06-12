@@ -134,6 +134,21 @@ app.post("/api/v1/services", (req: Request, res: Response) => {
   res.status(isNew ? 201 : 200).json({ serviceId, priceStroops });
 });
 
+/** Unregister a service. 204 on success, 404 if unknown. */
+app.delete("/api/v1/services/:serviceId", (req: Request, res: Response) => {
+  const { serviceId } = req.params;
+  if (!servicesStore.has(serviceId)) {
+    res.status(404).json({
+      error: "not_found",
+      message: `service ${serviceId} is not registered`,
+      requestId: (req as Request & { id?: string }).id,
+    });
+    return;
+  }
+  servicesStore.delete(serviceId);
+  res.status(204).send();
+});
+
 /** List every registered service with its current price (stroops/request). */
 app.get("/api/v1/services", (_req: Request, res: Response) => {
   const services = Array.from(servicesStore.entries()).map(
