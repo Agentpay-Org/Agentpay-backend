@@ -103,6 +103,30 @@ app.get("/api/v1/usage/:agent/:serviceId", (req: Request, res: Response) => {
 });
 
 /**
+ * Settle an (agent, serviceId) pair: drain the accumulator and return the
+ * billed amount (requests * priceStroops). Off-chain mirror of the
+ * on-chain settle() entrypoint.
+ */
+app.post("/api/v1/settle", (req: Request, res: Response) => {
+  const { agent, serviceId } = req.body ?? {};
+  const requestId = (req as Request & { id?: string }).id;
+  if (typeof agent !== "string" || typeof serviceId !== "string") {
+    res.status(400).json({
+      error: "invalid_request",
+      message: "agent and serviceId are required strings",
+      requestId,
+    });
+    return;
+  }
+  const key = usageKey(agent, serviceId);
+  const requests = usageStore.get(key) ?? 0;
+  const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
+  const billedStroops = requests * price;
+  usageStore.set(key, 0);
+  res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
+});
+
+/**
  * List every (serviceId, total) pair currently accumulated for an agent.
  * Empty list for agents that have never recorded any usage.
  */
