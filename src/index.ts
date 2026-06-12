@@ -458,6 +458,20 @@ app.get("/api/v1/usage/:agent/:serviceId", (req: Request, res: Response) => {
  * Read-only quote of the outstanding billing for a pair (no drain).
  * Mirrors compute_billing on the on-chain side.
  */
+/** CSV export of every (agent, serviceId, total) tuple. */
+app.get("/api/v1/usage/export.csv", (_req: Request, res: Response) => {
+  const escape = (v: string) =>
+    /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  const rows: string[] = ["agent,serviceId,total"];
+  for (const [key, total] of usageStore.entries()) {
+    const [agent, serviceId] = key.split("::");
+    rows.push(`${escape(agent)},${escape(serviceId)},${total}`);
+  }
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", "attachment; filename=usage.csv");
+  res.send(rows.join("\n") + "\n");
+});
+
 /** Full JSON export of every (agent, serviceId, total) tuple. */
 app.get("/api/v1/usage/export.json", (_req: Request, res: Response) => {
   const items: { agent: string; serviceId: string; total: number }[] = [];
