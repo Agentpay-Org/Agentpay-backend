@@ -26,6 +26,71 @@ app.get("/api/v1/version", (_req: Request, res: Response) => {
   res.json({ version: "1.0.0" });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Usage metering
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// In-memory accumulator keyed by `${agent}::${serviceId}`. This is the same
+// shape the on-chain Escrow contract persists (DataKey::Usage(agent, sym)) —
+// the backend is the off-chain mirror that the settlement job will drain and
+// flush to the contract. A process restart resets the counters, which is
+// fine for now: callers should not rely on durability until the database
+// adapter lands.
+const usageStore = new Map<string, number>();
+const usageKey = (agent: string, serviceId: string) => `${agent}::${serviceId}`;
+
+/**
+ * Record incremental usage for an (agent, serviceId) pair.
+ * Body: { agent: string, serviceId: string, requests: number }
+ * Returns: { agent, serviceId, total } where `total` is the accumulator
+ * after this write.
+ */
+app.post("/api/v1/usage", (req: Request, res: Response) => {
+  const { agent, serviceId, requests } = req.body ?? {};
+  const requestId = (req as Request & { id?: string }).id;
+
+  if (typeof agent !== "string" || agent.length === 0 || agent.length > 256) {
+    res.status(400).json({
+      error: "invalid_request",
+      message: "agent must be a non-empty string up to 256 chars",
+      requestId,
+    });
+    return;
+  }
+  if (
+    typeof serviceId !== "string" ||
+    serviceId.length === 0 ||
+    serviceId.length > 128
+  ) {
+    res.status(400).json({
+      error: "invalid_request",
+      message: "serviceId must be a non-empty string up to 128 chars",
+      requestId,
+    });
+    return;
+  }
+  if (
+    typeof requests !== "number" ||
+    !Number.isInteger(requests) ||
+    requests <= 0
+  ) {
+    res.status(400).json({
+      error: "invalid_request",
+      message: "requests must be a positive integer",
+      requestId,
+    });
+    return;
+  }
+
+  const key = usageKey(agent, serviceId);
+  const prev = usageStore.get(key) ?? 0;
+  // Saturate at Number.MAX_SAFE_INTEGER rather than overflow into floats.
+  const total = Math.min(Number.MAX_SAFE_INTEGER, prev + requests);
+  usageStore.set(key, total);
+
+  res.status(201).json({ agent, serviceId, total });
+});
+
 // Unknown route: structured 404 echoing the request id.
 app.use((req: Request, res: Response) => {
   res.status(404).json({

@@ -45,4 +45,45 @@ describe("AgentPay Backend", () => {
     assert.ok(res.body?.message?.includes("/api/v1/this-route-does-not-exist"));
     assert.ok(res.body?.requestId);
   });
+
+  it("POST /api/v1/usage records a first write and returns the new total", async () => {
+    const res = await request(app)
+      .post("/api/v1/usage")
+      .send({ agent: "agent-a", serviceId: "weather_api", requests: 40 });
+    assert.strictEqual(res.status, 201);
+    assert.deepStrictEqual(res.body, {
+      agent: "agent-a",
+      serviceId: "weather_api",
+      total: 40,
+    });
+  });
+
+  it("POST /api/v1/usage accumulates across calls for the same pair", async () => {
+    // First call: 100
+    await request(app)
+      .post("/api/v1/usage")
+      .send({ agent: "agent-b", serviceId: "infer", requests: 100 });
+    // Second call: +25 → 125
+    const res = await request(app)
+      .post("/api/v1/usage")
+      .send({ agent: "agent-b", serviceId: "infer", requests: 25 });
+    assert.strictEqual(res.status, 201);
+    assert.strictEqual(res.body.total, 125);
+  });
+
+  for (const [label, payload] of [
+    ["empty agent", { agent: "", serviceId: "s", requests: 1 }],
+    ["empty serviceId", { agent: "a", serviceId: "", requests: 1 }],
+    ["zero requests", { agent: "a", serviceId: "s", requests: 0 }],
+    ["negative requests", { agent: "a", serviceId: "s", requests: -3 }],
+    ["non-integer requests", { agent: "a", serviceId: "s", requests: 1.5 }],
+    ["wrong-type agent", { agent: 7, serviceId: "s", requests: 1 }],
+  ] as const) {
+    it(`POST /api/v1/usage rejects ${label} with 400`, async () => {
+      const res = await request(app).post("/api/v1/usage").send(payload);
+      assert.strictEqual(res.status, 400);
+      assert.strictEqual(res.body.error, "invalid_request");
+      assert.ok(res.body.requestId);
+    });
+  }
 });
