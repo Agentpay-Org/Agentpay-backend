@@ -102,6 +102,22 @@ app.get("/api/v1/usage/:agent/:serviceId", (req: Request, res: Response) => {
   res.json({ agent, serviceId, total });
 });
 
+/**
+ * List every (serviceId, total) pair currently accumulated for an agent.
+ * Empty list for agents that have never recorded any usage.
+ */
+app.get("/api/v1/agents/:agent/usage", (req: Request, res: Response) => {
+  const { agent } = req.params;
+  const prefix = `${agent}::`;
+  const items: { serviceId: string; total: number }[] = [];
+  for (const [key, total] of usageStore.entries()) {
+    if (key.startsWith(prefix)) {
+      items.push({ serviceId: key.slice(prefix.length), total });
+    }
+  }
+  res.json({ agent, items });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Service registry
 // ─────────────────────────────────────────────────────────────────────────────
