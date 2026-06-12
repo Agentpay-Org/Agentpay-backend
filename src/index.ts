@@ -512,6 +512,21 @@ app.post("/api/v1/api-keys", (req: Request, res: Response) => {
 type WebhookRecord = { url: string; events: string[]; createdAt: number };
 const webhookStore = new Map<string, WebhookRecord>();
 
+/** Unregister a webhook. 204 on success, 404 if unknown. */
+app.delete("/api/v1/webhooks/:id", (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!webhookStore.has(id)) {
+    res.status(404).json({
+      error: "not_found",
+      message: `webhook ${id} not registered`,
+      requestId: (req as Request & { id?: string }).id,
+    });
+    return;
+  }
+  webhookStore.delete(id);
+  res.status(204).send();
+});
+
 /** List every registered webhook with its metadata. */
 app.get("/api/v1/webhooks", (_req: Request, res: Response) => {
   const items = Array.from(webhookStore.entries()).map(([id, meta]) => ({
