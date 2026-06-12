@@ -4,7 +4,10 @@ import express, { type NextFunction, type Request, type Response } from "express
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
-app.use(express.json());
+// 100 KiB cap on request bodies. Every endpoint we expose accepts a
+// handful of short strings and numbers — anything larger is almost
+// certainly an abusive or buggy caller.
+app.use(express.json({ limit: "100kb" }));
 
 // Minimal security headers — same shape Helmet would produce but without
 // the dependency footprint. Lets us start hardening the response surface
