@@ -38,6 +38,20 @@ describe("AgentPay Backend", () => {
     assert.strictEqual(res.headers["x-request-id"], caller);
   });
 
+  it("admin/pause blocks writes and unpause restores them", async () => {
+    await request(app).post("/api/v1/admin/pause");
+    const blocked = await request(app)
+      .post("/api/v1/usage")
+      .send({ agent: "a", serviceId: "s", requests: 1 });
+    assert.strictEqual(blocked.status, 503);
+    assert.strictEqual(blocked.body.error, "service_paused");
+    await request(app).post("/api/v1/admin/unpause");
+    const ok = await request(app)
+      .post("/api/v1/usage")
+      .send({ agent: "a", serviceId: "s", requests: 1 });
+    assert.strictEqual(ok.status, 201);
+  });
+
   it("computes billing and drains on settle", async () => {
     await request(app)
       .post("/api/v1/services")
