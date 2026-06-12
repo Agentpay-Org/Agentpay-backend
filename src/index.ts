@@ -134,6 +134,21 @@ app.post("/api/v1/services", (req: Request, res: Response) => {
   res.status(isNew ? 201 : 200).json({ serviceId, priceStroops });
 });
 
+/** Fetch a single service by id. 200 with metadata or 404. */
+app.get("/api/v1/services/:serviceId", (req: Request, res: Response) => {
+  const { serviceId } = req.params;
+  const meta = servicesStore.get(serviceId);
+  if (!meta) {
+    res.status(404).json({
+      error: "not_found",
+      message: `service ${serviceId} is not registered`,
+      requestId: (req as Request & { id?: string }).id,
+    });
+    return;
+  }
+  res.json({ serviceId, ...meta });
+});
+
 /** Unregister a service. 204 on success, 404 if unknown. */
 app.delete("/api/v1/services/:serviceId", (req: Request, res: Response) => {
   const { serviceId } = req.params;
