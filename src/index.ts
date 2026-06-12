@@ -458,6 +458,17 @@ app.get("/api/v1/usage/:agent/:serviceId", (req: Request, res: Response) => {
  * Read-only quote of the outstanding billing for a pair (no drain).
  * Mirrors compute_billing on the on-chain side.
  */
+/** Full JSON export of every (agent, serviceId, total) tuple. */
+app.get("/api/v1/usage/export.json", (_req: Request, res: Response) => {
+  const items: { agent: string; serviceId: string; total: number }[] = [];
+  for (const [key, total] of usageStore.entries()) {
+    const [agent, serviceId] = key.split("::");
+    items.push({ agent, serviceId, total });
+  }
+  res.setHeader("Content-Disposition", "attachment; filename=usage.json");
+  res.json({ exportedAt: Date.now(), items });
+});
+
 /** Protocol-wide outstanding billing in stroops. */
 app.get("/api/v1/billing/total", (_req: Request, res: Response) => {
   let totalStroops = 0;
