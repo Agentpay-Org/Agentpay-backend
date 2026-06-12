@@ -68,6 +68,27 @@ app.get("/api/v1/config", (_req: Request, res: Response) => {
   res.json({ config });
 });
 
+app.patch("/api/v1/config", (req: Request, res: Response) => {
+  const requestId = (req as Request & { id?: string }).id;
+  const updates = req.body ?? {};
+  const allowed = ["rateLimitPerWindow", "rateLimitWindowMs", "bulkMaxItems"] as const;
+  for (const k of allowed) {
+    if (k in updates) {
+      const v = updates[k];
+      if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: `${k} must be a positive integer`,
+          requestId,
+        });
+        return;
+      }
+      (config as Record<string, number>)[k] = v;
+    }
+  }
+  res.json({ config });
+});
+
 /**
  * Prometheus-format metrics endpoint. Plain-text exposition format.
  */
