@@ -782,9 +782,29 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
 });
 
 if (process.argv[1]?.endsWith("index.js") || process.argv[1]?.endsWith("index.ts")) {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`AgentPay backend listening on port ${PORT}`);
   });
+
+  // Graceful shutdown. Stop accepting new connections, drain in-flight
+  // requests for up to 10 s, then exit. Calling code (PaaS, docker) can
+  // safely SIGTERM the process at any time.
+  const shutdown = (signal: string) => {
+    console.log(`Received ${signal}, draining…`);
+    server.close((err) => {
+      if (err) {
+        console.error("server.close error:", err);
+        process.exit(1);
+      }
+      process.exit(0);
+    });
+    setTimeout(() => {
+      console.error("Forced exit after 10s drain timeout");
+      process.exit(1);
+    }, 10_000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 export { app };
