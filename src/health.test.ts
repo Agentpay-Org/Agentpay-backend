@@ -82,12 +82,12 @@ void describe("AgentPay Backend", () => {
     assert.strictEqual(quote.status, 200);
     assert.strictEqual(quote.body.requests, 10);
     assert.strictEqual(quote.body.priceStroops, 50);
-    assert.strictEqual(quote.body.billedStroops, 500);
+    assert.strictEqual(quote.body.billedStroops, "500");
 
     const settle = await request(app)
       .post("/api/v1/settle")
       .send({ agent: "agent-bill", serviceId: "svc-bill" });
-    assert.strictEqual(settle.body.billedStroops, 500);
+    assert.strictEqual(settle.body.billedStroops, "500");
 
     const after = await request(app).get("/api/v1/usage/agent-bill/svc-bill");
     assert.strictEqual(after.body.total, 0);

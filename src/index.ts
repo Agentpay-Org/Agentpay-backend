@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
+import {
+  isSafeNonNegativeInteger,
+  isSafePositiveInteger,
+  multiplyStroops,
+  sumStroops,
+} from "./util/stroops.js";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -288,6 +294,7 @@ app.get("/api/v1/changelog", (_req: Request, res: Response) => {
           "Admin pause/unpause, API keys, webhooks, event log.",
           "Bulk usage + bulk services, CSV/JSON exports.",
           "Metadata + disabled flag per service.",
+          "Billing amounts are serialized as decimal stroops strings for precision.",
         ],
       },
     ],
@@ -339,8 +346,52 @@ app.get("/api/v1/openapi.json", (_req: Request, res: Response) => {
       "/api/v1/usage": { post: { summary: "Record usage" } },
       "/api/v1/usage/bulk": { post: { summary: "Batched record" } },
       "/api/v1/usage/{agent}/{serviceId}": { get: { summary: "Read accumulator" } },
-      "/api/v1/billing/{agent}/{serviceId}": { get: { summary: "Quote bill" } },
-      "/api/v1/settle": { post: { summary: "Drain & quote bill" } },
+      "/api/v1/billing/total": {
+        get: {
+          summary: "Protocol-wide outstanding billing",
+          responses: {
+            "200": {
+              description:
+                "Outstanding billing total with totalStroops as a decimal string.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/BillingTotal" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/api/v1/billing/{agent}/{serviceId}": {
+        get: {
+          summary: "Quote bill",
+          responses: {
+            "200": {
+              description: "Pair billing quote with billedStroops as a decimal string.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/BillingQuote" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/api/v1/settle": {
+        post: {
+          summary: "Drain & quote bill",
+          responses: {
+            "200": {
+              description: "Settlement result with billedStroops as a decimal string.",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/BillingQuote" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/api/v1/api-keys": {
         get: { summary: "List api keys" },
         post: { summary: "Create api key" },
@@ -354,6 +405,38 @@ app.get("/api/v1/openapi.json", (_req: Request, res: Response) => {
       "/api/v1/admin/pause": { post: { summary: "Pause writes" } },
       "/api/v1/admin/unpause": { post: { summary: "Resume" } },
       "/api/v1/admin/status": { get: { summary: "Read pause flag" } },
+    },
+    components: {
+      schemas: {
+        BillingQuote: {
+          type: "object",
+          required: ["agent", "serviceId", "requests", "priceStroops", "billedStroops"],
+          properties: {
+            agent: { type: "string" },
+            serviceId: { type: "string" },
+            requests: { type: "integer", minimum: 0 },
+            priceStroops: { type: "integer", minimum: 0 },
+            billedStroops: {
+              type: "string",
+              pattern: "^[0-9]+$",
+              description:
+                "Exact decimal stroops string to avoid JSON number precision loss.",
+            },
+          },
+        },
+        BillingTotal: {
+          type: "object",
+          required: ["totalStroops"],
+          properties: {
+            totalStroops: {
+              type: "string",
+              pattern: "^[0-9]+$",
+              description:
+                "Exact decimal stroops string to avoid JSON number precision loss.",
+            },
+          },
+        },
+      },
     },
   });
 });
@@ -401,10 +484,10 @@ app.post("/api/v1/usage", (req: Request, res: Response) => {
     });
     return;
   }
-  if (typeof requests !== "number" || !Number.isInteger(requests) || requests <= 0) {
+  if (!isSafePositiveInteger(requests)) {
     res.status(400).json({
       error: "invalid_request",
-      message: "requests must be a positive integer",
+      message: "requests must be a positive safe integer",
       requestId,
     });
     return;
@@ -451,9 +534,7 @@ app.post("/api/v1/usage/bulk", (req: Request, res: Response) => {
     if (
       typeof agent !== "string" ||
       typeof serviceId !== "string" ||
-      typeof requests !== "number" ||
-      !Number.isInteger(requests) ||
-      requests <= 0
+      !isSafePositiveInteger(requests)
     ) {
       results.push({ index: i, ok: false, error: "invalid_item" });
       continue;
@@ -511,25 +592,26 @@ app.get("/api/v1/usage/export.json", (_req: Request, res: Response) => {
 
 /** Protocol-wide outstanding billing in stroops. */
 app.get("/api/v1/billing/total", (_req: Request, res: Response) => {
-  let totalStroops = 0;
+  const billedValues: string[] = [];
   for (const [key, requests] of usageStore.entries()) {
     const [, serviceId] = key.split("::");
     const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
-    totalStroops += requests * price;
+    billedValues.push(multiplyStroops(requests, price));
   }
-  res.json({ totalStroops });
+  res.json({ totalStroops: sumStroops(billedValues) });
 });
 
 app.get("/api/v1/billing/:agent/:serviceId", (req: Request, res: Response) => {
   const { agent, serviceId } = req.params;
   const requests = usageStore.get(usageKey(agent, serviceId)) ?? 0;
   const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
+  const billedStroops = multiplyStroops(requests, price);
   res.json({
     agent,
     serviceId,
     requests,
     priceStroops: price,
-    billedStroops: requests * price,
+    billedStroops,
   });
 });
 
@@ -552,7 +634,7 @@ app.post("/api/v1/settle", (req: Request, res: Response) => {
   const key = usageKey(agent, serviceId);
   const requests = usageStore.get(key) ?? 0;
   const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
-  const billedStroops = requests * price;
+  const billedStroops = multiplyStroops(requests, price);
   usageStore.set(key, 0);
   recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
   res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
@@ -626,9 +708,7 @@ app.post("/api/v1/services/bulk", (req: Request, res: Response) => {
         typeof serviceId !== "string" ||
         serviceId.length === 0 ||
         serviceId.length > 128 ||
-        typeof priceStroops !== "number" ||
-        !Number.isInteger(priceStroops) ||
-        priceStroops < 0
+        !isSafeNonNegativeInteger(priceStroops)
       ) {
         return { index: i, ok: false, error: "invalid_item" };
       }
@@ -656,14 +736,10 @@ app.post("/api/v1/services", (req: Request, res: Response) => {
     });
     return;
   }
-  if (
-    typeof priceStroops !== "number" ||
-    !Number.isInteger(priceStroops) ||
-    priceStroops < 0
-  ) {
+  if (!isSafeNonNegativeInteger(priceStroops)) {
     res.status(400).json({
       error: "invalid_request",
-      message: "priceStroops must be a non-negative integer",
+      message: "priceStroops must be a safe non-negative integer",
       requestId,
     });
     return;
@@ -819,14 +895,10 @@ app.patch("/api/v1/services/:serviceId/price", (req: Request, res: Response) => 
     return;
   }
   const { priceStroops } = req.body ?? {};
-  if (
-    typeof priceStroops !== "number" ||
-    !Number.isInteger(priceStroops) ||
-    priceStroops < 0
-  ) {
+  if (!isSafeNonNegativeInteger(priceStroops)) {
     res.status(400).json({
       error: "invalid_request",
-      message: "priceStroops must be a non-negative integer",
+      message: "priceStroops must be a safe non-negative integer",
       requestId,
     });
     return;

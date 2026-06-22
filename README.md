@@ -5,7 +5,17 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
 ## Overview
 
 - **Stack:** Node.js, Express, TypeScript
-- **Endpoints:** Health check, version, and placeholders for usage/billing APIs
+- **Endpoints:** Health check, version, usage, service registry, billing, and settlement APIs
+
+## Billing amount precision
+
+Billing endpoints serialize stroop amounts as decimal strings, not JSON numbers:
+
+- `GET /api/v1/billing/:agent/:serviceId` returns `billedStroops: string`.
+- `POST /api/v1/settle` returns `billedStroops: string`.
+- `GET /api/v1/billing/total` returns `totalStroops: string`.
+
+This avoids JSON number precision loss when request counts and per-request prices produce totals above `Number.MAX_SAFE_INTEGER`. Request counts and `priceStroops` inputs still use safe non-negative JSON integers. See [docs/billing.md](docs/billing.md).
 
 ## Prerequisites
 
