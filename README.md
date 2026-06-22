@@ -6,6 +6,7 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
 
 - **Stack:** Node.js, Express, TypeScript
 - **Endpoints:** Health check, version, and placeholders for usage/billing APIs
+- **Architecture:** See [`docs/architecture.md`](docs/architecture.md) for the current in-memory mirror, request lifecycle, and planned off-chain to on-chain settlement flow.
 
 ## Prerequisites
 
@@ -43,6 +44,8 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
 
 ```
 agentpay-backend/
+├── docs/
+│   └── architecture.md   # Off-chain mirror and settlement model
 ├── src/
 │   ├── index.ts          # Express app and routes
 │   └── health.test.ts    # Tests
@@ -81,3 +84,4 @@ On push/PR to `main`, GitHub Actions runs:
 ## License
 
 MIT
+
