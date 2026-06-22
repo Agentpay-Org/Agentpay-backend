@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
+import { createIdempotencyMiddleware } from "./middleware/idempotency.js";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -181,6 +182,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
   next();
 });
+
+app.use(createIdempotencyMiddleware());
 
 // Pause guard: when admin has paused the system, refuse every
 // state-changing method with 503. /admin/unpause is explicitly
