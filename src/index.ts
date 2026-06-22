@@ -4,6 +4,31 @@ import express, { type NextFunction, type Request, type Response } from "express
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
+function trustProxySettingFromEnv(value: string | undefined): false | number {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (
+    normalized.length === 0 ||
+    normalized === "0" ||
+    normalized === "false" ||
+    normalized === "off" ||
+    normalized === "no"
+  ) {
+    return false;
+  }
+  if (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "on" ||
+    normalized === "yes"
+  ) {
+    return 1;
+  }
+  const hops = Number(normalized);
+  return Number.isInteger(hops) && hops > 0 ? hops : false;
+}
+
+app.set("trust proxy", trustProxySettingFromEnv(process.env.TRUST_PROXY));
+
 // 100 KiB cap on request bodies. Every endpoint we expose accepts a
 // handful of short strings and numbers — anything larger is almost
 // certainly an abusive or buggy caller.
@@ -203,11 +228,25 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 const RATE_LIMIT_PER_WINDOW = 60;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const rateBuckets = new Map<string, number[]>();
+
+/**
+ * Derive the limiter bucket from authenticated caller identity when present,
+ * otherwise from Express' trusted client IP. X-Forwarded-For only influences
+ * req.ip when `TRUST_PROXY` enables a known proxy hop count.
+ */
+function rateLimitKey(req: Request) {
+  const apiKey = (req as Request & { apiKey?: string }).apiKey;
+  if (apiKey) {
+    return `api-key:${createHash("sha256").update(apiKey).digest("hex")}`;
+  }
+  return `ip:${req.ip ?? req.socket.remoteAddress ?? "unknown"}`;
+}
+
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (process.env.NODE_ENV === "test") return next();
-  const ip = req.ip ?? req.socket.remoteAddress ?? "unknown";
+  const key = rateLimitKey(req);
   const now = Date.now();
-  const bucket = (rateBuckets.get(ip) ?? []).filter(
+  const bucket = (rateBuckets.get(key) ?? []).filter(
     (t) => now - t < RATE_LIMIT_WINDOW_MS
   );
   if (bucket.length >= RATE_LIMIT_PER_WINDOW) {
@@ -220,7 +259,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     return;
   }
   bucket.push(now);
-  rateBuckets.set(ip, bucket);
+  rateBuckets.set(key, bucket);
   next();
 });
 
@@ -1164,4 +1203,4 @@ if (process.argv[1]?.endsWith("index.js") || process.argv[1]?.endsWith("index.ts
   process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
-export { app };
+export { app, trustProxySettingFromEnv };

@@ -39,6 +39,15 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
    ```
    Server runs at `http://localhost:3001`. Try `GET /health` and `GET /api/v1/version`.
 
+## Running behind a proxy
+
+The rate limiter keys on an authenticated API key when present; otherwise it
+uses Express' trusted client IP. `TRUST_PROXY` is disabled by default. Set it to
+a positive proxy hop count, or `true`/`on`/`yes` for one trusted hop, only when
+the app runs behind a proxy you control. Do not enable it for direct internet
+traffic, because untrusted `X-Forwarded-For` headers would become part of
+client IP resolution.
+
 ## Project structure
 
 ```
