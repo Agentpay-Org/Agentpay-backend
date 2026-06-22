@@ -32,6 +32,162 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+type HttpMetricLabels = {
+  method: string;
+  route: string;
+  status: string;
+};
+
+type HttpDurationHistogram = {
+  labels: HttpMetricLabels;
+  buckets: number[];
+  count: number;
+  sum: number;
+};
+
+const HTTP_DURATION_BUCKETS_SECONDS = [
+  0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10,
+];
+const httpRequestCounters = new Map<
+  string,
+  { labels: HttpMetricLabels; value: number }
+>();
+const httpDurationHistograms = new Map<string, HttpDurationHistogram>();
+let httpErrorsTotal = 0;
+
+function prometheusEscape(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/"/g, '\\"');
+}
+
+function prometheusLabels(labels: Record<string, string>) {
+  return Object.entries(labels)
+    .map(([name, value]) => `${name}="${prometheusEscape(value)}"`)
+    .join(",");
+}
+
+function prometheusNumber(value: number) {
+  if (!Number.isFinite(value)) return "0";
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function httpMetricKey(labels: HttpMetricLabels) {
+  return `${labels.method}\n${labels.route}\n${labels.status}`;
+}
+
+function matchedRouteLabel(req: Request) {
+  const route = (req as Request & { route?: { path?: unknown } }).route?.path;
+  return typeof route === "string" ? route : "unmatched";
+}
+
+/**
+ * Record bounded-cardinality HTTP metrics. Labels use Express route patterns
+ * rather than raw paths, so agent ids, service ids, and webhook ids never enter
+ * the Prometheus label set.
+ */
+function observeHttpRequest(
+  method: string,
+  route: string,
+  statusCode: number,
+  durationSeconds: number
+) {
+  const labels: HttpMetricLabels = {
+    method: method.toUpperCase(),
+    route,
+    status: String(statusCode),
+  };
+  const key = httpMetricKey(labels);
+  const counter = httpRequestCounters.get(key) ?? { labels, value: 0 };
+  counter.value += 1;
+  httpRequestCounters.set(key, counter);
+
+  const histogram = httpDurationHistograms.get(key) ?? {
+    labels,
+    buckets: HTTP_DURATION_BUCKETS_SECONDS.map(() => 0),
+    count: 0,
+    sum: 0,
+  };
+  for (let i = 0; i < HTTP_DURATION_BUCKETS_SECONDS.length; i += 1) {
+    if (durationSeconds <= HTTP_DURATION_BUCKETS_SECONDS[i]) {
+      histogram.buckets[i] += 1;
+    }
+  }
+  histogram.count += 1;
+  histogram.sum += durationSeconds;
+  httpDurationHistograms.set(key, histogram);
+}
+
+function httpMetricLines() {
+  const lines = [
+    "# HELP agentpay_http_requests_total Total HTTP responses by method, route, and status.",
+    "# TYPE agentpay_http_requests_total counter",
+  ];
+  for (const { labels, value } of httpRequestCounters.values()) {
+    lines.push(
+      `agentpay_http_requests_total{${prometheusLabels(labels)}} ${prometheusNumber(
+        value
+      )}`
+    );
+  }
+
+  lines.push(
+    "# HELP agentpay_http_request_duration_seconds HTTP request duration by method, route, and status.",
+    "# TYPE agentpay_http_request_duration_seconds histogram"
+  );
+  for (const histogram of httpDurationHistograms.values()) {
+    const baseLabels = histogram.labels;
+    for (let i = 0; i < HTTP_DURATION_BUCKETS_SECONDS.length; i += 1) {
+      lines.push(
+        `agentpay_http_request_duration_seconds_bucket{${prometheusLabels({
+          ...baseLabels,
+          le: String(HTTP_DURATION_BUCKETS_SECONDS[i]),
+        })}} ${prometheusNumber(histogram.buckets[i])}`
+      );
+    }
+    lines.push(
+      `agentpay_http_request_duration_seconds_bucket{${prometheusLabels({
+        ...baseLabels,
+        le: "+Inf",
+      })}} ${prometheusNumber(histogram.count)}`,
+      `agentpay_http_request_duration_seconds_sum{${prometheusLabels(
+        baseLabels
+      )}} ${prometheusNumber(histogram.sum)}`,
+      `agentpay_http_request_duration_seconds_count{${prometheusLabels(
+        baseLabels
+      )}} ${prometheusNumber(histogram.count)}`
+    );
+  }
+
+  lines.push(
+    "# HELP agentpay_http_errors_total Requests that reached the final error handler.",
+    "# TYPE agentpay_http_errors_total counter",
+    `agentpay_http_errors_total ${prometheusNumber(httpErrorsTotal)}`
+  );
+  return lines;
+}
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const startNs = process.hrtime.bigint();
+  res.on("finish", () => {
+    const durationSeconds = Number(process.hrtime.bigint() - startNs) / 1_000_000_000;
+    const route = matchedRouteLabel(req);
+    observeHttpRequest(req.method, route, res.statusCode, durationSeconds);
+    if (process.env.NODE_ENV !== "test") {
+      console.log(
+        JSON.stringify({
+          requestId: (req as Request & { id?: string }).id,
+          method: req.method,
+          route,
+          path: req.path,
+          status: res.statusCode,
+          durationMs: Math.round(durationSeconds * 10_000) / 10,
+        })
+      );
+    }
+  });
+  next();
+});
+
 app.use(express.json({ limit: "100kb" }));
 
 // Minimal security headers — same shape Helmet would produce but without
@@ -139,6 +295,7 @@ app.get("/api/v1/metrics", (_req: Request, res: Response) => {
     "# HELP agentpay_paused 1 if the backend is paused, 0 otherwise.",
     "# TYPE agentpay_paused gauge",
     `agentpay_paused ${paused ? 1 : 0}`,
+    ...httpMetricLines(),
   ];
   res.setHeader("Content-Type", "text/plain; version=0.0.4");
   res.send(lines.join("\n") + "\n");
@@ -221,32 +378,6 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
   bucket.push(now);
   rateBuckets.set(ip, bucket);
-  next();
-});
-
-// Wall-clock request timer. Emits a structured log line on every completed
-// request. Server-Timing cannot be set in the finish event (headers are
-// already sent by then), so we append it via Node's HTTP trailer mechanism
-// when trailers are supported, and skip it otherwise.
-app.use((req: Request, res: Response, next: NextFunction) => {
-  const startNs = process.hrtime.bigint();
-  res.on("finish", () => {
-    const ms = Number(process.hrtime.bigint() - startNs) / 1_000_000;
-    if (!res.headersSent) {
-      res.setHeader("Server-Timing", `app;dur=${ms.toFixed(1)}`);
-    }
-    if (process.env.NODE_ENV !== "test") {
-      console.log(
-        JSON.stringify({
-          requestId: (req as Request & { id?: string }).id,
-          method: req.method,
-          path: req.path,
-          status: res.statusCode,
-          durationMs: Math.round(ms * 10) / 10,
-        })
-      );
-    }
-  });
   next();
 });
 
@@ -1113,6 +1244,7 @@ app.use((req: Request, res: Response) => {
 // uniform JSON so clients can branch on `error` and operators can grep
 // `requestId` to find the matching log line.
 app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  httpErrorsTotal += 1;
   // Special-case the common entity.too.large from express.json — surface
   // it as a 413 instead of a generic 500 so clients can branch on it.
   if (
