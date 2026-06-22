@@ -1041,6 +1041,14 @@ app.patch("/api/v1/webhooks/:id", (req: Request, res: Response) => {
     return;
   }
   const { url, events } = req.body ?? {};
+  if (url === undefined && events === undefined) {
+    res.status(400).json({
+      error: "invalid_request",
+      message: "url or events must be provided",
+      requestId,
+    });
+    return;
+  }
   if (url !== undefined) {
     if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) {
       res.status(400).json({
