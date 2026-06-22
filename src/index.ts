@@ -32,6 +32,18 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// Attach an X-Request-Id to every response, accepting the caller's value
+// if they supplied one (so a gateway/load-balancer chain stays correlated)
+// and otherwise minting a fresh UUID. The id is also exposed as `req.id` so
+// downstream handlers and the error handler can quote it.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const incoming = req.header("x-request-id");
+  const id = incoming && incoming.length <= 200 ? incoming : randomUUID();
+  (req as Request & { id: string }).id = id;
+  res.setHeader("X-Request-Id", id);
+  next();
+});
+
 app.use(express.json({ limit: "100kb" }));
 
 // Minimal security headers — same shape Helmet would produce but without
@@ -46,18 +58,6 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
     "max-age=63072000; includeSubDomains; preload"
   );
   res.setHeader("Permissions-Policy", "geolocation=(), camera=(), microphone=()");
-  next();
-});
-
-// Attach an X-Request-Id to every response, accepting the caller's value
-// if they supplied one (so a gateway/load-balancer chain stays correlated)
-// and otherwise minting a fresh UUID. The id is also exposed as `req.id` so
-// downstream handlers and the error handler can quote it.
-app.use((req: Request, res: Response, next: NextFunction) => {
-  const incoming = req.header("x-request-id");
-  const id = incoming && incoming.length <= 200 ? incoming : randomUUID();
-  (req as Request & { id: string }).id = id;
-  res.setHeader("X-Request-Id", id);
   next();
 });
 
