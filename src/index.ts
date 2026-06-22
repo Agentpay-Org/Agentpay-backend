@@ -371,6 +371,19 @@ app.get("/api/v1/openapi.json", (_req: Request, res: Response) => {
 const usageStore = new Map<string, number>();
 const usageKey = (agent: string, serviceId: string) => `${agent}::${serviceId}`;
 
+const CSV_FORMULA_PREFIX = /^[=+\-@\t\r]/;
+
+/**
+ * Escapes a single CSV field and neutralizes spreadsheet formula injection.
+ * Spreadsheet apps may execute cells beginning with =, +, -, @, tab, or CR as
+ * formulas, so those values are prefixed with an apostrophe before standard
+ * CSV quote escaping is applied.
+ */
+function escapeCsvField(value: string): string {
+  const safeValue = CSV_FORMULA_PREFIX.test(value) ? `'${value}` : value;
+  return /[",\r\n]/.test(safeValue) ? `"${safeValue.replace(/"/g, '""')}"` : safeValue;
+}
+
 /**
  * Record incremental usage for an (agent, serviceId) pair.
  * Body: { agent: string, serviceId: string, requests: number }
@@ -487,11 +500,10 @@ app.get("/api/v1/usage/:agent/:serviceId", (req: Request, res: Response) => {
  */
 /** CSV export of every (agent, serviceId, total) tuple. */
 app.get("/api/v1/usage/export.csv", (_req: Request, res: Response) => {
-  const escape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const rows: string[] = ["agent,serviceId,total"];
   for (const [key, total] of usageStore.entries()) {
     const [agent, serviceId] = key.split("::");
-    rows.push(`${escape(agent)},${escape(serviceId)},${total}`);
+    rows.push(`${escapeCsvField(agent)},${escapeCsvField(serviceId)},${total}`);
   }
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", "attachment; filename=usage.csv");
