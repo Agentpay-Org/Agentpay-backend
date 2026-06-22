@@ -370,6 +370,72 @@ app.get("/api/v1/openapi.json", (_req: Request, res: Response) => {
 // adapter lands.
 const usageStore = new Map<string, number>();
 const usageKey = (agent: string, serviceId: string) => `${agent}::${serviceId}`;
+const safeIdentifierPattern = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * Validate identifiers used in composite usage keys and URL params.
+ *
+ * The restricted character set prevents `::` key ambiguity, CSV row
+ * injection, and control-character surprises in downstream consumers.
+ */
+function isSafeIdentifier(value: unknown, maxLength: number): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= maxLength &&
+    safeIdentifierPattern.test(value)
+  );
+}
+
+function identifierMessage(field: "agent" | "serviceId", maxLength: number) {
+  return `${field} must be a non-empty string up to ${maxLength} chars using only letters, numbers, dot, underscore, or hyphen`;
+}
+
+function rejectInvalidIdentifier(
+  res: Response,
+  requestId: string | undefined,
+  field: "agent" | "serviceId",
+  maxLength: number
+) {
+  res.status(400).json({
+    error: "invalid_request",
+    message: identifierMessage(field, maxLength),
+    requestId,
+  });
+}
+
+function validateAgentId(
+  agent: unknown,
+  res: Response,
+  requestId: string | undefined
+): agent is string {
+  if (isSafeIdentifier(agent, 256)) return true;
+  rejectInvalidIdentifier(res, requestId, "agent", 256);
+  return false;
+}
+
+function validateServiceId(
+  serviceId: unknown,
+  res: Response,
+  requestId: string | undefined
+): serviceId is string {
+  if (isSafeIdentifier(serviceId, 128)) return true;
+  rejectInvalidIdentifier(res, requestId, "serviceId", 128);
+  return false;
+}
+
+app.param("agent", (req: Request, res: Response, next: NextFunction, agent: string) => {
+  if (!validateAgentId(agent, res, (req as Request & { id?: string }).id)) return;
+  next();
+});
+
+app.param(
+  "serviceId",
+  (req: Request, res: Response, next: NextFunction, serviceId: string) => {
+    if (!validateServiceId(serviceId, res, (req as Request & { id?: string }).id)) return;
+    next();
+  }
+);
 
 /**
  * Record incremental usage for an (agent, serviceId) pair.
@@ -381,26 +447,8 @@ app.post("/api/v1/usage", (req: Request, res: Response) => {
   const { agent, serviceId, requests } = req.body ?? {};
   const requestId = (req as Request & { id?: string }).id;
 
-  if (typeof agent !== "string" || agent.length === 0 || agent.length > 256) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "agent must be a non-empty string up to 256 chars",
-      requestId,
-    });
-    return;
-  }
-  if (
-    typeof serviceId !== "string" ||
-    serviceId.length === 0 ||
-    serviceId.length > 128
-  ) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "serviceId must be a non-empty string up to 128 chars",
-      requestId,
-    });
-    return;
-  }
+  if (!validateAgentId(agent, res, requestId)) return;
+  if (!validateServiceId(serviceId, res, requestId)) return;
   if (typeof requests !== "number" || !Number.isInteger(requests) || requests <= 0) {
     res.status(400).json({
       error: "invalid_request",
@@ -451,6 +499,8 @@ app.post("/api/v1/usage/bulk", (req: Request, res: Response) => {
     if (
       typeof agent !== "string" ||
       typeof serviceId !== "string" ||
+      !isSafeIdentifier(agent, 256) ||
+      !isSafeIdentifier(serviceId, 128) ||
       typeof requests !== "number" ||
       !Number.isInteger(requests) ||
       requests <= 0
@@ -541,14 +591,8 @@ app.get("/api/v1/billing/:agent/:serviceId", (req: Request, res: Response) => {
 app.post("/api/v1/settle", (req: Request, res: Response) => {
   const { agent, serviceId } = req.body ?? {};
   const requestId = (req as Request & { id?: string }).id;
-  if (typeof agent !== "string" || typeof serviceId !== "string") {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "agent and serviceId are required strings",
-      requestId,
-    });
-    return;
-  }
+  if (!validateAgentId(agent, res, requestId)) return;
+  if (!validateServiceId(serviceId, res, requestId)) return;
   const key = usageKey(agent, serviceId);
   const requests = usageStore.get(key) ?? 0;
   const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
@@ -624,8 +668,7 @@ app.post("/api/v1/services/bulk", (req: Request, res: Response) => {
       const { serviceId, priceStroops } = it ?? {};
       if (
         typeof serviceId !== "string" ||
-        serviceId.length === 0 ||
-        serviceId.length > 128 ||
+        !isSafeIdentifier(serviceId, 128) ||
         typeof priceStroops !== "number" ||
         !Number.isInteger(priceStroops) ||
         priceStroops < 0
@@ -644,18 +687,7 @@ app.post("/api/v1/services/bulk", (req: Request, res: Response) => {
 app.post("/api/v1/services", (req: Request, res: Response) => {
   const { serviceId, priceStroops } = req.body ?? {};
   const requestId = (req as Request & { id?: string }).id;
-  if (
-    typeof serviceId !== "string" ||
-    serviceId.length === 0 ||
-    serviceId.length > 128
-  ) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "serviceId must be a non-empty string up to 128 chars",
-      requestId,
-    });
-    return;
-  }
+  if (!validateServiceId(serviceId, res, requestId)) return;
   if (
     typeof priceStroops !== "number" ||
     !Number.isInteger(priceStroops) ||

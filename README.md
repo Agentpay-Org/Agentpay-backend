@@ -7,6 +7,22 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
 - **Stack:** Node.js, Express, TypeScript
 - **Endpoints:** Health check, version, and placeholders for usage/billing APIs
 
+## Identifier rules
+
+`agent` and `serviceId` identify usage counters, billing quotes, services, and
+settlement records. They are used in composite in-memory keys, URL path params,
+CSV/JSON exports, and event payloads, so the API accepts only a conservative
+character set:
+
+- `agent`: 1-256 characters
+- `serviceId`: 1-128 characters
+- Allowed characters: `A-Z`, `a-z`, `0-9`, `.`, `_`, `-`
+
+Identifiers containing whitespace, control characters, commas, path/key
+separators such as `::`, or other punctuation are rejected with the standard
+`400 invalid_request` response shape. Bulk endpoints preserve their existing
+per-item `invalid_item` reporting while applying the same identifier rules.
+
 ## Prerequisites
 
 - Node.js 18.18+
