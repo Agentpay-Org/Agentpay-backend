@@ -63,6 +63,19 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
+## Configuration
+
+| Variable        | Required | Description                                                                                                                |
+| --------------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `ADMIN_API_KEY` | Yes      | Secret sent as `X-Admin-API-Key` for `POST /api/v1/admin/pause`, `POST /api/v1/admin/unpause`, and `PATCH /api/v1/config`. |
+
+Do not commit real admin keys. For local development, export a throwaway value before
+starting the server:
+
+```bash
+export ADMIN_API_KEY=local-dev-admin-key
+```
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:

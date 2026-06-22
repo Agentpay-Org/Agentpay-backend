@@ -3,6 +3,9 @@ import assert from "node:assert";
 import request from "supertest";
 import { app } from "./index.js";
 
+process.env.ADMIN_API_KEY = "test-admin-key";
+const adminHeaders = { "X-Admin-API-Key": "test-admin-key" };
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 /** Unique service id per test to avoid cross-test state pollution. */
@@ -21,7 +24,7 @@ async function createService(serviceId: string, priceStroops = 100) {
 // Ensure system is unpaused before each test so pause state from other
 // test files doesn't bleed over.
 beforeEach(async () => {
-  await request(app).post("/api/v1/admin/unpause");
+  await request(app).post("/api/v1/admin/unpause").set(adminHeaders);
 });
 
 // ─── Services CRUD ────────────────────────────────────────────────────────────
@@ -75,8 +78,9 @@ void describe("Services CRUD", () => {
     await createService(id, 42);
     const res = await request(app).get("/api/v1/services");
     assert.strictEqual(res.status, 200);
-    const found = (res.body.services as { serviceId: string; priceStroops: number }[])
-      .find((s) => s.serviceId === id);
+    const found = (
+      res.body.services as { serviceId: string; priceStroops: number }[]
+    ).find((s) => s.serviceId === id);
     assert.ok(found, "service missing from list");
     assert.strictEqual(found.priceStroops, 42);
   });
@@ -105,7 +109,9 @@ void describe("Services CRUD", () => {
     assert.strictEqual(first.status, 200);
     const etag = first.headers.etag as string;
     assert.ok(etag, "ETag header missing");
-    const second = await request(app).get("/api/v1/services").set("If-None-Match", etag);
+    const second = await request(app)
+      .get("/api/v1/services")
+      .set("If-None-Match", etag);
     assert.strictEqual(second.status, 304);
   });
 
@@ -159,9 +165,7 @@ void describe("Services CRUD", () => {
     void it(`PATCH price rejects ${label} with 400`, async () => {
       const id = sid();
       await createService(id);
-      const res = await request(app)
-        .patch(`/api/v1/services/${id}/price`)
-        .send(body);
+      const res = await request(app).patch(`/api/v1/services/${id}/price`).send(body);
       assert.strictEqual(res.status, 400);
       assert.strictEqual(res.body.error, "invalid_request");
     });
@@ -279,9 +283,7 @@ void describe("Services CRUD", () => {
     void it(`PUT metadata rejects ${label} with 400`, async () => {
       const id = sid();
       await createService(id);
-      const res = await request(app)
-        .put(`/api/v1/services/${id}/metadata`)
-        .send(body);
+      const res = await request(app).put(`/api/v1/services/${id}/metadata`).send(body);
       assert.strictEqual(res.status, 400);
       assert.strictEqual(res.body.error, "invalid_request");
     });
@@ -331,9 +333,9 @@ void describe("POST /api/v1/services/bulk", () => {
       .post("/api/v1/services/bulk")
       .send({
         items: [
-          { serviceId: good, priceStroops: 10 },   // index 0 — valid
-          { serviceId: "", priceStroops: 5 },       // index 1 — invalid
-          { serviceId: sid(), priceStroops: -1 },   // index 2 — invalid
+          { serviceId: good, priceStroops: 10 }, // index 0 — valid
+          { serviceId: "", priceStroops: 5 }, // index 1 — invalid
+          { serviceId: sid(), priceStroops: -1 }, // index 2 — invalid
         ],
       });
     assert.strictEqual(res.status, 201);
@@ -350,7 +352,15 @@ void describe("POST /api/v1/services/bulk", () => {
     ["empty items array", { items: [] }],
     ["items not an array", { items: "bad" }],
     ["missing items key", {}],
-    ["items > 50", { items: Array.from({ length: 51 }, (_, i) => ({ serviceId: `s${i}`, priceStroops: 1 })) }],
+    [
+      "items > 50",
+      {
+        items: Array.from({ length: 51 }, (_, i) => ({
+          serviceId: `s${i}`,
+          priceStroops: 1,
+        })),
+      },
+    ],
   ] as const) {
     void it(`bulk rejects ${label} with 400`, async () => {
       const res = await request(app).post("/api/v1/services/bulk").send(body);

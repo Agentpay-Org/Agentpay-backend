@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 
 const app = express();
@@ -21,7 +21,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     res.setHeader(
       "Access-Control-Allow-Headers",
-      "Content-Type,X-Request-Id,X-API-Key"
+      "Content-Type,X-Request-Id,X-API-Key,X-Admin-API-Key"
     );
     res.setHeader("Access-Control-Max-Age", "86400");
   }
@@ -70,15 +70,47 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // state during a pause window.
 let paused = false;
 
-app.post("/api/v1/admin/pause", (_req: Request, res: Response) => {
+function adminKeyMatches(supplied: string, expected: string): boolean {
+  const suppliedDigest = createHash("sha256").update(supplied).digest();
+  const expectedDigest = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(suppliedDigest, expectedDigest);
+}
+
+/**
+ * Require the env-configured admin API key for privileged operator routes.
+ *
+ * The comparison hashes both inputs before `timingSafeEqual`, so differing
+ * key lengths do not create an early-return timing branch.
+ */
+function requireAdminApiKey(req: Request, res: Response, next: NextFunction): void {
+  const expected = process.env.ADMIN_API_KEY;
+  const supplied = req.header("x-admin-api-key") ?? "";
+
+  if (!expected || !adminKeyMatches(supplied, expected)) {
+    res.status(401).json({
+      error: "unauthorized",
+      message: "valid admin API key required",
+      requestId: (req as Request & { id?: string }).id,
+    });
+    return;
+  }
+
+  next();
+}
+
+app.post("/api/v1/admin/pause", requireAdminApiKey, (_req: Request, res: Response) => {
   paused = true;
   res.json({ paused });
 });
 
-app.post("/api/v1/admin/unpause", (_req: Request, res: Response) => {
-  paused = false;
-  res.json({ paused });
-});
+app.post(
+  "/api/v1/admin/unpause",
+  requireAdminApiKey,
+  (_req: Request, res: Response) => {
+    paused = false;
+    res.json({ paused });
+  }
+);
 
 app.get("/api/v1/admin/status", (_req: Request, res: Response) => {
   res.json({ paused });
@@ -99,7 +131,7 @@ app.get("/api/v1/config", (_req: Request, res: Response) => {
   res.json({ config });
 });
 
-app.patch("/api/v1/config", (req: Request, res: Response) => {
+app.patch("/api/v1/config", requireAdminApiKey, (req: Request, res: Response) => {
   const requestId = (req as Request & { id?: string }).id;
   const updates = req.body ?? {};
   const allowed = ["rateLimitPerWindow", "rateLimitWindowMs", "bulkMaxItems"] as const;

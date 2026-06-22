@@ -3,6 +3,9 @@ import assert from "node:assert";
 import request from "supertest";
 import { app } from "./index.js";
 
+process.env.ADMIN_API_KEY = "test-admin-key";
+const adminHeaders = { "X-Admin-API-Key": "test-admin-key" };
+
 void describe("AgentPay Backend", () => {
   void it("app is defined", () => {
     assert.ok(app);
@@ -58,13 +61,13 @@ void describe("AgentPay Backend", () => {
   });
 
   void it("admin/pause blocks writes and unpause restores them", async () => {
-    await request(app).post("/api/v1/admin/pause");
+    await request(app).post("/api/v1/admin/pause").set(adminHeaders);
     const blocked = await request(app)
       .post("/api/v1/usage")
       .send({ agent: "a", serviceId: "s", requests: 1 });
     assert.strictEqual(blocked.status, 503);
     assert.strictEqual(blocked.body.error, "service_paused");
-    await request(app).post("/api/v1/admin/unpause");
+    await request(app).post("/api/v1/admin/unpause").set(adminHeaders);
     const ok = await request(app)
       .post("/api/v1/usage")
       .send({ agent: "a", serviceId: "s", requests: 1 });
