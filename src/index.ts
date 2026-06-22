@@ -124,8 +124,6 @@ app.patch("/api/v1/config", (req: Request, res: Response) => {
  * Prometheus-format metrics endpoint. Plain-text exposition format.
  */
 app.get("/api/v1/metrics", (_req: Request, res: Response) => {
-  let totalRequests = 0;
-  for (const v of usageStore.values()) totalRequests += v;
   const lines = [
     "# HELP agentpay_services_total Number of registered services.",
     "# TYPE agentpay_services_total gauge",
@@ -135,7 +133,7 @@ app.get("/api/v1/metrics", (_req: Request, res: Response) => {
     `agentpay_api_keys_total ${apiKeyStore.size}`,
     "# HELP agentpay_usage_requests_total Outstanding (unsettled) request counters.",
     "# TYPE agentpay_usage_requests_total gauge",
-    `agentpay_usage_requests_total ${totalRequests}`,
+    `agentpay_usage_requests_total ${totalOutstandingRequests}`,
     "# HELP agentpay_paused 1 if the backend is paused, 0 otherwise.",
     "# TYPE agentpay_paused gauge",
     `agentpay_paused ${paused ? 1 : 0}`,
@@ -148,17 +146,11 @@ app.get("/api/v1/metrics", (_req: Request, res: Response) => {
  * Aggregate stats snapshot. Single round-trip for dashboards.
  */
 app.get("/api/v1/stats", (_req: Request, res: Response) => {
-  let totalRequests = 0;
-  const agents = new Set<string>();
-  for (const [key, total] of usageStore.entries()) {
-    totalRequests += total;
-    agents.add(key.split("::")[0]);
-  }
   res.json({
     totalServices: servicesStore.size,
     totalApiKeys: apiKeyStore.size,
-    totalRequests,
-    uniqueAgents: agents.size,
+    totalRequests: totalOutstandingRequests,
+    uniqueAgents: usageByAgent.size,
     paused,
   });
 });
@@ -370,6 +362,138 @@ app.get("/api/v1/openapi.json", (_req: Request, res: Response) => {
 // adapter lands.
 const usageStore = new Map<string, number>();
 const usageKey = (agent: string, serviceId: string) => `${agent}::${serviceId}`;
+const usageByAgent = new Map<string, Set<string>>();
+const usageByService = new Map<string, Set<string>>();
+let totalOutstandingRequests = 0;
+let totalOutstandingStroops = 0;
+
+/** Return the current billable price for a service, matching read-time billing semantics. */
+function priceForService(serviceId: string): number {
+  return servicesStore.get(serviceId)?.priceStroops ?? 0;
+}
+
+/** Register the secondary index entries for an agent/service pair if absent. */
+function ensureUsageIndexEntry(agent: string, serviceId: string): void {
+  let services = usageByAgent.get(agent);
+  if (!services) {
+    services = new Set<string>();
+    usageByAgent.set(agent, services);
+  }
+  services.add(serviceId);
+
+  let agents = usageByService.get(serviceId);
+  if (!agents) {
+    agents = new Set<string>();
+    usageByService.set(serviceId, agents);
+  }
+  agents.add(agent);
+}
+
+/**
+ * Update the accumulator and all derived indexes/counters together.
+ *
+ * The pair remains indexed even when `nextTotal` is zero because the previous
+ * settle behavior kept a zero-valued usageStore key visible to rollup endpoints.
+ */
+function setUsageTotal(agent: string, serviceId: string, nextTotal: number): number {
+  const key = usageKey(agent, serviceId);
+  const previousTotal = usageStore.get(key) ?? 0;
+  const delta = nextTotal - previousTotal;
+
+  usageStore.set(key, nextTotal);
+  ensureUsageIndexEntry(agent, serviceId);
+
+  if (delta !== 0) {
+    totalOutstandingRequests += delta;
+    totalOutstandingStroops += delta * priceForService(serviceId);
+  }
+
+  return nextTotal;
+}
+
+/** Total outstanding requests for one service using the service index only. */
+function totalRequestsForService(serviceId: string): number {
+  let total = 0;
+  for (const agent of usageByService.get(serviceId) ?? []) {
+    total += usageStore.get(usageKey(agent, serviceId)) ?? 0;
+  }
+  return total;
+}
+
+/**
+ * Reprice one service's outstanding usage after service registration,
+ * re-registration, price update, or deletion.
+ */
+function adjustBillingTotalForServicePriceChange(
+  serviceId: string,
+  previousPrice: number,
+  nextPrice: number
+): void {
+  if (previousPrice === nextPrice) return;
+  totalOutstandingStroops +=
+    totalRequestsForService(serviceId) * (nextPrice - previousPrice);
+}
+
+/** Test-only invariant check: indexes and running totals must match a brute-force scan. */
+function assertUsageIndexesConsistent(): void {
+  const expectedByAgent = new Map<string, Set<string>>();
+  const expectedByService = new Map<string, Set<string>>();
+  let expectedRequests = 0;
+  let expectedStroops = 0;
+
+  for (const [key, total] of usageStore.entries()) {
+    const [agent, serviceId] = key.split("::");
+    if (agent === undefined || serviceId === undefined) {
+      throw new Error(`invalid usage key: ${key}`);
+    }
+
+    if (!expectedByAgent.has(agent)) expectedByAgent.set(agent, new Set<string>());
+    expectedByAgent.get(agent)?.add(serviceId);
+
+    if (!expectedByService.has(serviceId))
+      expectedByService.set(serviceId, new Set<string>());
+    expectedByService.get(serviceId)?.add(agent);
+
+    expectedRequests += total;
+    expectedStroops += total * priceForService(serviceId);
+  }
+
+  const compareIndexes = (
+    label: string,
+    actual: Map<string, Set<string>>,
+    expected: Map<string, Set<string>>
+  ) => {
+    if (actual.size !== expected.size) {
+      throw new Error(`${label} size mismatch: ${actual.size} !== ${expected.size}`);
+    }
+    for (const [key, expectedValues] of expected.entries()) {
+      const actualValues = actual.get(key);
+      if (!actualValues) throw new Error(`${label} missing key: ${key}`);
+      if (actualValues.size !== expectedValues.size) {
+        throw new Error(`${label} entry size mismatch for ${key}`);
+      }
+      for (const value of expectedValues) {
+        if (!actualValues.has(value)) {
+          throw new Error(`${label} missing ${key} -> ${value}`);
+        }
+      }
+    }
+  };
+
+  compareIndexes("usageByAgent", usageByAgent, expectedByAgent);
+  compareIndexes("usageByService", usageByService, expectedByService);
+
+  if (totalOutstandingRequests !== expectedRequests) {
+    throw new Error(
+      `request total mismatch: ${totalOutstandingRequests} !== ${expectedRequests}`
+    );
+  }
+  if (totalOutstandingStroops !== expectedStroops) {
+    throw new Error(
+      `billing total mismatch: ${totalOutstandingStroops} !== ${expectedStroops}`
+    );
+  }
+}
 
 /**
  * Record incremental usage for an (agent, serviceId) pair.
@@ -423,7 +547,7 @@ app.post("/api/v1/usage", (req: Request, res: Response) => {
   const prev = usageStore.get(key) ?? 0;
   // Saturate at Number.MAX_SAFE_INTEGER rather than overflow into floats.
   const total = Math.min(Number.MAX_SAFE_INTEGER, prev + requests);
-  usageStore.set(key, total);
+  setUsageTotal(agent, serviceId, total);
 
   recordEvent("usage.recorded", { agent, serviceId, requests, total });
   res.status(201).json({ agent, serviceId, total });
@@ -458,12 +582,11 @@ app.post("/api/v1/usage/bulk", (req: Request, res: Response) => {
       results.push({ index: i, ok: false, error: "invalid_item" });
       continue;
     }
-    const key = usageKey(agent, serviceId);
     const total = Math.min(
       Number.MAX_SAFE_INTEGER,
-      (usageStore.get(key) ?? 0) + requests
+      (usageStore.get(usageKey(agent, serviceId)) ?? 0) + requests
     );
-    usageStore.set(key, total);
+    setUsageTotal(agent, serviceId, total);
     recordEvent("usage.recorded", { agent, serviceId, requests, total, bulk: true });
     results.push({ index: i, ok: true, total });
   }
@@ -511,13 +634,7 @@ app.get("/api/v1/usage/export.json", (_req: Request, res: Response) => {
 
 /** Protocol-wide outstanding billing in stroops. */
 app.get("/api/v1/billing/total", (_req: Request, res: Response) => {
-  let totalStroops = 0;
-  for (const [key, requests] of usageStore.entries()) {
-    const [, serviceId] = key.split("::");
-    const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
-    totalStroops += requests * price;
-  }
-  res.json({ totalStroops });
+  res.json({ totalStroops: totalOutstandingStroops });
 });
 
 app.get("/api/v1/billing/:agent/:serviceId", (req: Request, res: Response) => {
@@ -553,7 +670,7 @@ app.post("/api/v1/settle", (req: Request, res: Response) => {
   const requests = usageStore.get(key) ?? 0;
   const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
   const billedStroops = requests * price;
-  usageStore.set(key, 0);
+  setUsageTotal(agent, serviceId, 0);
   recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
   res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
 });
@@ -561,9 +678,7 @@ app.post("/api/v1/settle", (req: Request, res: Response) => {
 /** List every distinct agent currently in the usage store. */
 app.get("/api/v1/agents", (req: Request, res: Response) => {
   const limit = Math.min(1000, Math.max(1, Number((req.query.limit as string) ?? 200)));
-  const seen = new Set<string>();
-  for (const key of usageStore.keys()) seen.add(key.split("::")[0]);
-  const agents = Array.from(seen).slice(0, limit);
+  const agents = Array.from(usageByAgent.keys()).slice(0, limit);
   res.json({ agents });
 });
 
@@ -573,10 +688,9 @@ app.get("/api/v1/agents", (req: Request, res: Response) => {
  */
 app.get("/api/v1/agents/:agent/total", (req: Request, res: Response) => {
   const { agent } = req.params;
-  const prefix = `${agent}::`;
   let total = 0;
-  for (const [key, n] of usageStore.entries()) {
-    if (key.startsWith(prefix)) total += n;
+  for (const serviceId of usageByAgent.get(agent) ?? []) {
+    total += usageStore.get(usageKey(agent, serviceId)) ?? 0;
   }
   res.json({ agent, total });
 });
@@ -587,12 +701,9 @@ app.get("/api/v1/agents/:agent/total", (req: Request, res: Response) => {
  */
 app.get("/api/v1/agents/:agent/usage", (req: Request, res: Response) => {
   const { agent } = req.params;
-  const prefix = `${agent}::`;
   const items: { serviceId: string; total: number }[] = [];
-  for (const [key, total] of usageStore.entries()) {
-    if (key.startsWith(prefix)) {
-      items.push({ serviceId: key.slice(prefix.length), total });
-    }
+  for (const serviceId of usageByAgent.get(agent) ?? []) {
+    items.push({ serviceId, total: usageStore.get(usageKey(agent, serviceId)) ?? 0 });
   }
   res.json({ agent, items });
 });
@@ -633,7 +744,9 @@ app.post("/api/v1/services/bulk", (req: Request, res: Response) => {
         return { index: i, ok: false, error: "invalid_item" };
       }
       const isNew = !servicesStore.has(serviceId);
+      const previousPrice = servicesStore.get(serviceId)?.priceStroops ?? 0;
       servicesStore.set(serviceId, { priceStroops });
+      adjustBillingTotalForServicePriceChange(serviceId, previousPrice, priceStroops);
       return { index: i, ok: true, serviceId, priceStroops, created: isNew };
     }
   );
@@ -669,35 +782,30 @@ app.post("/api/v1/services", (req: Request, res: Response) => {
     return;
   }
   const isNew = !servicesStore.has(serviceId);
+  const previousPrice = servicesStore.get(serviceId)?.priceStroops ?? 0;
   servicesStore.set(serviceId, { priceStroops });
+  adjustBillingTotalForServicePriceChange(serviceId, previousPrice, priceStroops);
   res.status(isNew ? 201 : 200).json({ serviceId, priceStroops });
 });
 
 /** Cross-agent rollup of accumulated usage for a single service. */
 app.get("/api/v1/services/:serviceId/usage", (req: Request, res: Response) => {
   const { serviceId } = req.params;
-  const suffix = `::${serviceId}`;
+  const agentsForService = usageByService.get(serviceId) ?? new Set<string>();
   let total = 0;
-  let agents = 0;
-  for (const [key, value] of usageStore.entries()) {
-    if (key.endsWith(suffix)) {
-      total += value;
-      agents++;
-    }
+  for (const agent of agentsForService) {
+    total += usageStore.get(usageKey(agent, serviceId)) ?? 0;
   }
-  res.json({ serviceId, total, agents });
+  res.json({ serviceId, total, agents: agentsForService.size });
 });
 
 /** Top-N consumers of a service, sorted by descending total. */
 app.get("/api/v1/services/:serviceId/agents/top", (req: Request, res: Response) => {
   const { serviceId } = req.params;
   const limit = Math.min(100, Math.max(1, Number((req.query.limit as string) ?? 10)));
-  const suffix = `::${serviceId}`;
   const items: { agent: string; total: number }[] = [];
-  for (const [key, total] of usageStore.entries()) {
-    if (key.endsWith(suffix)) {
-      items.push({ agent: key.slice(0, key.length - suffix.length), total });
-    }
+  for (const agent of usageByService.get(serviceId) ?? []) {
+    items.push({ agent, total: usageStore.get(usageKey(agent, serviceId)) ?? 0 });
   }
   items.sort((a, b) => b.total - a.total);
   res.json({ serviceId, items: items.slice(0, limit) });
@@ -706,12 +814,9 @@ app.get("/api/v1/services/:serviceId/agents/top", (req: Request, res: Response) 
 /** List every agent currently consuming a service. */
 app.get("/api/v1/services/:serviceId/agents", (req: Request, res: Response) => {
   const { serviceId } = req.params;
-  const suffix = `::${serviceId}`;
   const items: { agent: string; total: number }[] = [];
-  for (const [key, total] of usageStore.entries()) {
-    if (key.endsWith(suffix)) {
-      items.push({ agent: key.slice(0, key.length - suffix.length), total });
-    }
+  for (const agent of usageByService.get(serviceId) ?? []) {
+    items.push({ agent, total: usageStore.get(usageKey(agent, serviceId)) ?? 0 });
   }
   res.json({ serviceId, items });
 });
@@ -831,8 +936,10 @@ app.patch("/api/v1/services/:serviceId/price", (req: Request, res: Response) => 
     });
     return;
   }
+  const previousPrice = meta.priceStroops;
   meta.priceStroops = priceStroops;
   servicesStore.set(serviceId, meta);
+  adjustBillingTotalForServicePriceChange(serviceId, previousPrice, priceStroops);
   res.json({ serviceId, ...meta });
 });
 
@@ -847,7 +954,9 @@ app.delete("/api/v1/services/:serviceId", (req: Request, res: Response) => {
     });
     return;
   }
+  const previousPrice = servicesStore.get(serviceId)?.priceStroops ?? 0;
   servicesStore.delete(serviceId);
+  adjustBillingTotalForServicePriceChange(serviceId, previousPrice, 0);
   res.status(204).send();
 });
 
@@ -1164,4 +1273,4 @@ if (process.argv[1]?.endsWith("index.js") || process.argv[1]?.endsWith("index.ts
   process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
-export { app };
+export { app, assertUsageIndexesConsistent };
