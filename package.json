@@ -7,7 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "test": "npm run build && NODE_ENV=test node --test 'dist/**/*.test.js'",
+    "test": "npm run build && NODE_ENV=test node --test $(find dist -name '*.test.js' | sort)",
     "lint": "eslint .",
     "format": "prettier --check ."
   },

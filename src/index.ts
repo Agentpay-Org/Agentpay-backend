@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
+import {
+  AppError,
+  asyncHandler,
+  renderAppError,
+  renderInternalError,
+} from "./errors/AppError.js";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -56,7 +62,7 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
 app.use((req: Request, res: Response, next: NextFunction) => {
   const incoming = req.header("x-request-id");
   const id = incoming && incoming.length <= 200 ? incoming : randomUUID();
-  (req as Request & { id: string }).id = id;
+  req.id = id;
   res.setHeader("X-Request-Id", id);
   next();
 });
@@ -99,26 +105,27 @@ app.get("/api/v1/config", (_req: Request, res: Response) => {
   res.json({ config });
 });
 
-app.patch("/api/v1/config", (req: Request, res: Response) => {
-  const requestId = (req as Request & { id?: string }).id;
-  const updates = req.body ?? {};
-  const allowed = ["rateLimitPerWindow", "rateLimitWindowMs", "bulkMaxItems"] as const;
-  for (const k of allowed) {
-    if (k in updates) {
-      const v = updates[k];
-      if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) {
-        res.status(400).json({
-          error: "invalid_request",
-          message: `${k} must be a positive integer`,
-          requestId,
-        });
-        return;
+app.patch(
+  "/api/v1/config",
+  asyncHandler((req: Request, res: Response) => {
+    const updates = req.body ?? {};
+    const allowed = [
+      "rateLimitPerWindow",
+      "rateLimitWindowMs",
+      "bulkMaxItems",
+    ] as const;
+    for (const k of allowed) {
+      if (k in updates) {
+        const v = updates[k];
+        if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) {
+          throw AppError.badRequest(`${k} must be a positive integer`);
+        }
+        (config as Record<string, number>)[k] = v;
       }
-      (config as Record<string, number>)[k] = v;
     }
-  }
-  res.json({ config });
-});
+    res.json({ config });
+  })
+);
 
 /**
  * Prometheus-format metrics endpoint. Plain-text exposition format.
@@ -177,7 +184,7 @@ const apiKeyStore = new Map<string, ApiKeyRecord>();
 app.use((req: Request, res: Response, next: NextFunction) => {
   const supplied = req.header("x-api-key");
   if (typeof supplied === "string" && apiKeyStore.has(supplied)) {
-    (req as Request & { apiKey?: string }).apiKey = supplied;
+    req.apiKey = supplied;
   }
   next();
 });
@@ -190,11 +197,13 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   const method = req.method.toUpperCase();
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
   if (req.path === "/api/v1/admin/unpause") return next();
-  res.status(503).json({
-    error: "service_paused",
-    message: "AgentPay backend is paused; only admin/unpause and reads are accepted",
-    requestId: (req as Request & { id?: string }).id,
-  });
+  renderAppError(
+    AppError.paused(
+      "AgentPay backend is paused; only admin/unpause and reads are accepted"
+    ),
+    req,
+    res
+  );
 });
 
 // Minimal in-process rate limiter: 60 requests per IP per 60 second
@@ -212,11 +221,13 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   );
   if (bucket.length >= RATE_LIMIT_PER_WINDOW) {
     res.setHeader("Retry-After", "60");
-    res.status(429).json({
-      error: "rate_limited",
-      message: `more than ${RATE_LIMIT_PER_WINDOW} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s`,
-      requestId: (req as Request & { id?: string }).id,
-    });
+    renderAppError(
+      AppError.rateLimited(
+        `more than ${RATE_LIMIT_PER_WINDOW} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s`
+      ),
+      req,
+      res
+    );
     return;
   }
   bucket.push(now);
@@ -238,7 +249,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     if (process.env.NODE_ENV !== "test") {
       console.log(
         JSON.stringify({
-          requestId: (req as Request & { id?: string }).id,
+          requestId: req.id,
           method: req.method,
           path: req.path,
           status: res.statusCode,
@@ -379,14 +390,13 @@ const usageKey = (agent: string, serviceId: string) => `${agent}::${serviceId}`;
  */
 app.post("/api/v1/usage", (req: Request, res: Response) => {
   const { agent, serviceId, requests } = req.body ?? {};
-  const requestId = (req as Request & { id?: string }).id;
 
   if (typeof agent !== "string" || agent.length === 0 || agent.length > 256) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "agent must be a non-empty string up to 256 chars",
-      requestId,
-    });
+    renderAppError(
+      AppError.badRequest("agent must be a non-empty string up to 256 chars"),
+      req,
+      res
+    );
     return;
   }
   if (
@@ -394,28 +404,28 @@ app.post("/api/v1/usage", (req: Request, res: Response) => {
     serviceId.length === 0 ||
     serviceId.length > 128
   ) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "serviceId must be a non-empty string up to 128 chars",
-      requestId,
-    });
+    renderAppError(
+      AppError.badRequest("serviceId must be a non-empty string up to 128 chars"),
+      req,
+      res
+    );
     return;
   }
   if (typeof requests !== "number" || !Number.isInteger(requests) || requests <= 0) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "requests must be a positive integer",
-      requestId,
-    });
+    renderAppError(
+      AppError.badRequest("requests must be a positive integer"),
+      req,
+      res
+    );
     return;
   }
 
   if (servicesDisabled.has(serviceId)) {
-    res.status(409).json({
-      error: "service_disabled",
-      message: `service ${serviceId} is currently disabled`,
-      requestId,
-    });
+    renderAppError(
+      AppError.conflict(`service ${serviceId} is currently disabled`),
+      req,
+      res
+    );
     return;
   }
 
@@ -435,14 +445,13 @@ app.post("/api/v1/usage", (req: Request, res: Response) => {
  * partial batch can still land.
  */
 app.post("/api/v1/usage/bulk", (req: Request, res: Response) => {
-  const requestId = (req as Request & { id?: string }).id;
   const { items } = req.body ?? {};
   if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "items must be a non-empty array of up to 100 entries",
-      requestId,
-    });
+    renderAppError(
+      AppError.badRequest("items must be a non-empty array of up to 100 entries"),
+      req,
+      res
+    );
     return;
   }
   const results: { index: number; ok: boolean; total?: number; error?: string }[] = [];
@@ -540,13 +549,12 @@ app.get("/api/v1/billing/:agent/:serviceId", (req: Request, res: Response) => {
  */
 app.post("/api/v1/settle", (req: Request, res: Response) => {
   const { agent, serviceId } = req.body ?? {};
-  const requestId = (req as Request & { id?: string }).id;
   if (typeof agent !== "string" || typeof serviceId !== "string") {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "agent and serviceId are required strings",
-      requestId,
-    });
+    renderAppError(
+      AppError.badRequest("agent and serviceId are required strings"),
+      req,
+      res
+    );
     return;
   }
   const key = usageKey(agent, serviceId);
@@ -609,14 +617,9 @@ const servicesMetadata = new Map<string, ServiceMetadataDto>();
 
 /** Batched register/update for services. Up to 50 items per call. */
 app.post("/api/v1/services/bulk", (req: Request, res: Response) => {
-  const requestId = (req as Request & { id?: string }).id;
   const { items } = req.body ?? {};
   if (!Array.isArray(items) || items.length === 0 || items.length > 50) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "items must be 1-50 entries",
-      requestId,
-    });
+    renderAppError(AppError.badRequest("items must be 1-50 entries"), req, res);
     return;
   }
   const results = items.map(
@@ -643,17 +646,16 @@ app.post("/api/v1/services/bulk", (req: Request, res: Response) => {
 /** Register a service with its per-request price. */
 app.post("/api/v1/services", (req: Request, res: Response) => {
   const { serviceId, priceStroops } = req.body ?? {};
-  const requestId = (req as Request & { id?: string }).id;
   if (
     typeof serviceId !== "string" ||
     serviceId.length === 0 ||
     serviceId.length > 128
   ) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "serviceId must be a non-empty string up to 128 chars",
-      requestId,
-    });
+    renderAppError(
+      AppError.badRequest("serviceId must be a non-empty string up to 128 chars"),
+      req,
+      res
+    );
     return;
   }
   if (
@@ -661,11 +663,11 @@ app.post("/api/v1/services", (req: Request, res: Response) => {
     !Number.isInteger(priceStroops) ||
     priceStroops < 0
   ) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "priceStroops must be a non-negative integer",
-      requestId,
-    });
+    renderAppError(
+      AppError.badRequest("priceStroops must be a non-negative integer"),
+      req,
+      res
+    );
     return;
   }
   const isNew = !servicesStore.has(serviceId);
@@ -721,11 +723,11 @@ app.get("/api/v1/services/:serviceId", (req: Request, res: Response) => {
   const { serviceId } = req.params;
   const meta = servicesStore.get(serviceId);
   if (!meta) {
-    res.status(404).json({
-      error: "not_found",
-      message: `service ${serviceId} is not registered`,
-      requestId: (req as Request & { id?: string }).id,
-    });
+    renderAppError(
+      AppError.notFound(`service ${serviceId} is not registered`),
+      req,
+      res
+    );
     return;
   }
   res.json({ serviceId, ...meta });
@@ -734,30 +736,29 @@ app.get("/api/v1/services/:serviceId", (req: Request, res: Response) => {
 /** Set description + owner metadata for a registered service. */
 app.put("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
   const { serviceId } = req.params;
-  const requestId = (req as Request & { id?: string }).id;
   if (!servicesStore.has(serviceId)) {
-    res.status(404).json({
-      error: "not_found",
-      message: `service ${serviceId} is not registered`,
-      requestId,
-    });
+    renderAppError(
+      AppError.notFound(`service ${serviceId} is not registered`),
+      req,
+      res
+    );
     return;
   }
   const { description, owner } = req.body ?? {};
   if (typeof description !== "string" || description.length > 256) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "description must be a string up to 256 chars",
-      requestId,
-    });
+    renderAppError(
+      AppError.badRequest("description must be a string up to 256 chars"),
+      req,
+      res
+    );
     return;
   }
   if (typeof owner !== "string" || owner.length === 0 || owner.length > 256) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "owner must be a non-empty string up to 256 chars",
-      requestId,
-    });
+    renderAppError(
+      AppError.badRequest("owner must be a non-empty string up to 256 chars"),
+      req,
+      res
+    );
     return;
   }
   servicesMetadata.set(serviceId, { description, owner });
@@ -769,11 +770,7 @@ app.get("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) =>
   const { serviceId } = req.params;
   const meta = servicesMetadata.get(serviceId);
   if (!meta) {
-    res.status(404).json({
-      error: "not_found",
-      message: `no metadata for service ${serviceId}`,
-      requestId: (req as Request & { id?: string }).id,
-    });
+    renderAppError(AppError.notFound(`no metadata for service ${serviceId}`), req, res);
     return;
   }
   res.json({ serviceId, ...meta });
@@ -782,22 +779,17 @@ app.get("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) =>
 /** Toggle the disabled flag on an existing service. */
 app.patch("/api/v1/services/:serviceId/disabled", (req: Request, res: Response) => {
   const { serviceId } = req.params;
-  const requestId = (req as Request & { id?: string }).id;
   if (!servicesStore.has(serviceId)) {
-    res.status(404).json({
-      error: "not_found",
-      message: `service ${serviceId} is not registered`,
-      requestId,
-    });
+    renderAppError(
+      AppError.notFound(`service ${serviceId} is not registered`),
+      req,
+      res
+    );
     return;
   }
   const { disabled } = req.body ?? {};
   if (typeof disabled !== "boolean") {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "disabled must be a boolean",
-      requestId,
-    });
+    renderAppError(AppError.badRequest("disabled must be a boolean"), req, res);
     return;
   }
   if (disabled) servicesDisabled.add(serviceId);
@@ -808,14 +800,13 @@ app.patch("/api/v1/services/:serviceId/disabled", (req: Request, res: Response) 
 /** Update only the price of an existing service. */
 app.patch("/api/v1/services/:serviceId/price", (req: Request, res: Response) => {
   const { serviceId } = req.params;
-  const requestId = (req as Request & { id?: string }).id;
   const meta = servicesStore.get(serviceId);
   if (!meta) {
-    res.status(404).json({
-      error: "not_found",
-      message: `service ${serviceId} is not registered`,
-      requestId,
-    });
+    renderAppError(
+      AppError.notFound(`service ${serviceId} is not registered`),
+      req,
+      res
+    );
     return;
   }
   const { priceStroops } = req.body ?? {};
@@ -824,11 +815,11 @@ app.patch("/api/v1/services/:serviceId/price", (req: Request, res: Response) => 
     !Number.isInteger(priceStroops) ||
     priceStroops < 0
   ) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "priceStroops must be a non-negative integer",
-      requestId,
-    });
+    renderAppError(
+      AppError.badRequest("priceStroops must be a non-negative integer"),
+      req,
+      res
+    );
     return;
   }
   meta.priceStroops = priceStroops;
@@ -840,11 +831,11 @@ app.patch("/api/v1/services/:serviceId/price", (req: Request, res: Response) => 
 app.delete("/api/v1/services/:serviceId", (req: Request, res: Response) => {
   const { serviceId } = req.params;
   if (!servicesStore.has(serviceId)) {
-    res.status(404).json({
-      error: "not_found",
-      message: `service ${serviceId} is not registered`,
-      requestId: (req as Request & { id?: string }).id,
-    });
+    renderAppError(
+      AppError.notFound(`service ${serviceId} is not registered`),
+      req,
+      res
+    );
     return;
   }
   servicesStore.delete(serviceId);
@@ -894,11 +885,7 @@ app.delete("/api/v1/api-keys/:prefix", (req: Request, res: Response) => {
     }
   }
   if (!found) {
-    res.status(404).json({
-      error: "not_found",
-      message: `no api key with prefix ${prefix}`,
-      requestId: (req as Request & { id?: string }).id,
-    });
+    renderAppError(AppError.notFound(`no api key with prefix ${prefix}`), req, res);
     return;
   }
   apiKeyStore.delete(found);
@@ -920,13 +907,12 @@ app.get("/api/v1/api-keys", (_req: Request, res: Response) => {
 /** Create a new opaque API key with a human label. */
 app.post("/api/v1/api-keys", (req: Request, res: Response) => {
   const { label } = req.body ?? {};
-  const requestId = (req as Request & { id?: string }).id;
   if (typeof label !== "string" || label.length === 0 || label.length > 64) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "label must be a non-empty string up to 64 chars",
-      requestId,
-    });
+    renderAppError(
+      AppError.badRequest("label must be a non-empty string up to 64 chars"),
+      req,
+      res
+    );
     return;
   }
   const key = `apk_${randomUUID().replace(/-/g, "")}`;
@@ -990,11 +976,7 @@ const webhookStore = new Map<string, WebhookRecord>();
 app.delete("/api/v1/webhooks/:id", (req: Request, res: Response) => {
   const { id } = req.params;
   if (!webhookStore.has(id)) {
-    res.status(404).json({
-      error: "not_found",
-      message: `webhook ${id} not registered`,
-      requestId: (req as Request & { id?: string }).id,
-    });
+    renderAppError(AppError.notFound(`webhook ${id} not registered`), req, res);
     return;
   }
   webhookStore.delete(id);
@@ -1013,14 +995,9 @@ app.get("/api/v1/webhooks", (_req: Request, res: Response) => {
 /** Trigger a synthetic event for a webhook (no actual delivery yet). */
 app.post("/api/v1/webhooks/:id/test", (req: Request, res: Response) => {
   const { id } = req.params;
-  const requestId = (req as Request & { id?: string }).id;
   const hook = webhookStore.get(id);
   if (!hook) {
-    res.status(404).json({
-      error: "not_found",
-      message: `webhook ${id} not registered`,
-      requestId,
-    });
+    renderAppError(AppError.notFound(`webhook ${id} not registered`), req, res);
     return;
   }
   recordEvent("webhook.test", { id, url: hook.url });
@@ -1030,24 +1007,19 @@ app.post("/api/v1/webhooks/:id/test", (req: Request, res: Response) => {
 /** Update url and/or events on an existing webhook. */
 app.patch("/api/v1/webhooks/:id", (req: Request, res: Response) => {
   const { id } = req.params;
-  const requestId = (req as Request & { id?: string }).id;
   const existing = webhookStore.get(id);
   if (!existing) {
-    res.status(404).json({
-      error: "not_found",
-      message: `webhook ${id} not registered`,
-      requestId,
-    });
+    renderAppError(AppError.notFound(`webhook ${id} not registered`), req, res);
     return;
   }
   const { url, events } = req.body ?? {};
   if (url !== undefined) {
     if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "url must be an http(s) URL up to 2048 chars",
-        requestId,
-      });
+      renderAppError(
+        AppError.badRequest("url must be an http(s) URL up to 2048 chars"),
+        req,
+        res
+      );
       return;
     }
     existing.url = url;
@@ -1058,11 +1030,11 @@ app.patch("/api/v1/webhooks/:id", (req: Request, res: Response) => {
       events.length === 0 ||
       events.some((e) => typeof e !== "string")
     ) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "events must be a non-empty array of strings",
-        requestId,
-      });
+      renderAppError(
+        AppError.badRequest("events must be a non-empty array of strings"),
+        req,
+        res
+      );
       return;
     }
     existing.events = events;
@@ -1073,13 +1045,12 @@ app.patch("/api/v1/webhooks/:id", (req: Request, res: Response) => {
 
 app.post("/api/v1/webhooks", (req: Request, res: Response) => {
   const { url, events } = req.body ?? {};
-  const requestId = (req as Request & { id?: string }).id;
   if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "url must be an http(s) URL up to 2048 chars",
-      requestId,
-    });
+    renderAppError(
+      AppError.badRequest("url must be an http(s) URL up to 2048 chars"),
+      req,
+      res
+    );
     return;
   }
   if (
@@ -1087,11 +1058,11 @@ app.post("/api/v1/webhooks", (req: Request, res: Response) => {
     events.length === 0 ||
     events.some((e) => typeof e !== "string")
   ) {
-    res.status(400).json({
-      error: "invalid_request",
-      message: "events must be a non-empty array of strings",
-      requestId,
-    });
+    renderAppError(
+      AppError.badRequest("events must be a non-empty array of strings"),
+      req,
+      res
+    );
     return;
   }
   const id = `wh_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
@@ -1101,11 +1072,7 @@ app.post("/api/v1/webhooks", (req: Request, res: Response) => {
 
 // Unknown route: structured 404 echoing the request id.
 app.use((req: Request, res: Response) => {
-  res.status(404).json({
-    error: "not_found",
-    message: `No route for ${req.method} ${req.path}`,
-    requestId: (req as Request & { id?: string }).id,
-  });
+  renderAppError(AppError.notFound(`No route for ${req.method} ${req.path}`), req, res);
 });
 
 // Final error handler. Express identifies this by the 4-arg signature.
@@ -1121,21 +1088,18 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
     "type" in err &&
     (err as { type: string }).type === "entity.too.large"
   ) {
-    res.status(413).json({
-      error: "payload_too_large",
-      message: "request body exceeds the 100 KiB limit",
-      requestId: (req as Request & { id?: string }).id,
-    });
+    renderAppError(
+      AppError.payloadTooLarge("request body exceeds the 100 KiB limit"),
+      req,
+      res
+    );
     return;
   }
-  const message = err instanceof Error ? err.message : "Unexpected server error";
-  res.status(500).json({
-    error: "internal_error",
-    message,
-    method: req.method,
-    path: req.path,
-    requestId: (req as Request & { id?: string }).id,
-  });
+  if (err instanceof AppError) {
+    renderAppError(err, req, res);
+    return;
+  }
+  renderInternalError(err, req, res);
 });
 
 if (process.argv[1]?.endsWith("index.js") || process.argv[1]?.endsWith("index.ts")) {
