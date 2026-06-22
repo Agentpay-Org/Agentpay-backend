@@ -39,6 +39,12 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
    ```
    Server runs at `http://localhost:3001`. Try `GET /health` and `GET /api/v1/version`.
 
+## Billing behavior
+
+- `GET /api/v1/billing/:agent/:serviceId` returns `404 not_found` when the service is not registered.
+- `POST /api/v1/settle` returns `404 not_found` for an unregistered service and leaves the usage counter intact.
+- `GET /api/v1/billing/total` returns `totalStroops` for registered services and an `unpricedUsage` array for usage tied to unregistered services.
+
 ## Project structure
 
 ```

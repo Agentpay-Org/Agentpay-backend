@@ -288,6 +288,7 @@ app.get("/api/v1/changelog", (_req: Request, res: Response) => {
           "Admin pause/unpause, API keys, webhooks, event log.",
           "Bulk usage + bulk services, CSV/JSON exports.",
           "Metadata + disabled flag per service.",
+          "Billing and settlement reject unregistered services instead of pricing at zero.",
         ],
       },
     ],
@@ -512,31 +513,45 @@ app.get("/api/v1/usage/export.json", (_req: Request, res: Response) => {
 /** Protocol-wide outstanding billing in stroops. */
 app.get("/api/v1/billing/total", (_req: Request, res: Response) => {
   let totalStroops = 0;
+  const unpricedUsage: { agent: string; serviceId: string; requests: number }[] = [];
   for (const [key, requests] of usageStore.entries()) {
-    const [, serviceId] = key.split("::");
-    const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
-    totalStroops += requests * price;
+    const [agent, serviceId] = key.split("::");
+    const service = servicesStore.get(serviceId);
+    if (!service) {
+      unpricedUsage.push({ agent, serviceId, requests });
+      continue;
+    }
+    totalStroops += requests * service.priceStroops;
   }
-  res.json({ totalStroops });
+  res.json({ totalStroops, unpricedUsage });
 });
 
 app.get("/api/v1/billing/:agent/:serviceId", (req: Request, res: Response) => {
   const { agent, serviceId } = req.params;
+  const requestId = (req as Request & { id?: string }).id;
+  const service = servicesStore.get(serviceId);
+  if (!service) {
+    res.status(404).json({
+      error: "not_found",
+      message: `service ${serviceId} is not registered`,
+      requestId,
+    });
+    return;
+  }
   const requests = usageStore.get(usageKey(agent, serviceId)) ?? 0;
-  const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
   res.json({
     agent,
     serviceId,
     requests,
-    priceStroops: price,
-    billedStroops: requests * price,
+    priceStroops: service.priceStroops,
+    billedStroops: requests * service.priceStroops,
   });
 });
 
 /**
- * Settle an (agent, serviceId) pair: drain the accumulator and return the
- * billed amount (requests * priceStroops). Off-chain mirror of the
- * on-chain settle() entrypoint.
+ * Settle a registered (agent, serviceId) pair: quote requests * priceStroops,
+ * then drain the accumulator. Unknown services return 404 before touching
+ * usage so a bad caller cannot accidentally clear billable work at zero price.
  */
 app.post("/api/v1/settle", (req: Request, res: Response) => {
   const { agent, serviceId } = req.body ?? {};
@@ -549,13 +564,27 @@ app.post("/api/v1/settle", (req: Request, res: Response) => {
     });
     return;
   }
+  const service = servicesStore.get(serviceId);
+  if (!service) {
+    res.status(404).json({
+      error: "not_found",
+      message: `service ${serviceId} is not registered`,
+      requestId,
+    });
+    return;
+  }
   const key = usageKey(agent, serviceId);
   const requests = usageStore.get(key) ?? 0;
-  const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
-  const billedStroops = requests * price;
+  const billedStroops = requests * service.priceStroops;
   usageStore.set(key, 0);
   recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
-  res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
+  res.json({
+    agent,
+    serviceId,
+    requests,
+    priceStroops: service.priceStroops,
+    billedStroops,
+  });
 });
 
 /** List every distinct agent currently in the usage store. */
