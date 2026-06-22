@@ -313,9 +313,12 @@ app.get("/api/v1/openapi.json", (_req: Request, res: Response) => {
         get: { summary: "Deep health with process diagnostics" },
       },
       "/api/v1/version": { get: { summary: "App version" } },
+      "/api/v1/changelog": { get: { summary: "Release notes" } },
+      "/api/v1/openapi.json": { get: { summary: "OpenAPI document" } },
       "/api/v1/stats": { get: { summary: "Aggregate stats snapshot" } },
       "/api/v1/metrics": { get: { summary: "Prometheus metrics" } },
       "/api/v1/events": { get: { summary: "Audit log (?since=&limit=)" } },
+      "/api/v1/events/summary": { get: { summary: "Audit event counts" } },
       "/api/v1/config": {
         get: { summary: "Read runtime config" },
         patch: { summary: "Update runtime config" },
@@ -324,6 +327,9 @@ app.get("/api/v1/openapi.json", (_req: Request, res: Response) => {
         get: { summary: "List services" },
         post: { summary: "Register a service" },
       },
+      "/api/v1/services/bulk": {
+        post: { summary: "Register services in a batch" },
+      },
       "/api/v1/services/{serviceId}": {
         get: { summary: "Fetch one service" },
         delete: { summary: "Unregister service" },
@@ -331,14 +337,31 @@ app.get("/api/v1/openapi.json", (_req: Request, res: Response) => {
       "/api/v1/services/{serviceId}/price": {
         patch: { summary: "Update price only" },
       },
+      "/api/v1/services/{serviceId}/disabled": {
+        patch: { summary: "Toggle service disabled flag" },
+      },
+      "/api/v1/services/{serviceId}/metadata": {
+        get: { summary: "Read service metadata" },
+        put: { summary: "Set service metadata" },
+      },
+      "/api/v1/services/{serviceId}/usage": {
+        get: { summary: "Service usage rollup" },
+      },
       "/api/v1/services/{serviceId}/agents": {
         get: { summary: "List agents on a service" },
       },
+      "/api/v1/services/{serviceId}/agents/top": {
+        get: { summary: "Top agents on a service" },
+      },
+      "/api/v1/agents": { get: { summary: "List agents" } },
       "/api/v1/agents/{agent}/usage": { get: { summary: "Per-service usage" } },
       "/api/v1/agents/{agent}/total": { get: { summary: "Lifetime total" } },
       "/api/v1/usage": { post: { summary: "Record usage" } },
       "/api/v1/usage/bulk": { post: { summary: "Batched record" } },
       "/api/v1/usage/{agent}/{serviceId}": { get: { summary: "Read accumulator" } },
+      "/api/v1/usage/export.csv": { get: { summary: "Export usage as CSV" } },
+      "/api/v1/usage/export.json": { get: { summary: "Export usage as JSON" } },
+      "/api/v1/billing/total": { get: { summary: "Protocol-wide billing" } },
       "/api/v1/billing/{agent}/{serviceId}": { get: { summary: "Quote bill" } },
       "/api/v1/settle": { post: { summary: "Drain & quote bill" } },
       "/api/v1/api-keys": {
@@ -350,7 +373,13 @@ app.get("/api/v1/openapi.json", (_req: Request, res: Response) => {
         get: { summary: "List webhooks" },
         post: { summary: "Register webhook" },
       },
-      "/api/v1/webhooks/{id}": { delete: { summary: "Unregister webhook" } },
+      "/api/v1/webhooks/{id}": {
+        patch: { summary: "Update webhook" },
+        delete: { summary: "Unregister webhook" },
+      },
+      "/api/v1/webhooks/{id}/test": {
+        post: { summary: "Record a synthetic webhook test" },
+      },
       "/api/v1/admin/pause": { post: { summary: "Pause writes" } },
       "/api/v1/admin/unpause": { post: { summary: "Resume" } },
       "/api/v1/admin/status": { get: { summary: "Read pause flag" } },
