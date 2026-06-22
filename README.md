@@ -39,6 +39,13 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
    ```
    Server runs at `http://localhost:3001`. Try `GET /health` and `GET /api/v1/version`.
 
+## Runtime config
+
+`GET /api/v1/config` returns the live in-memory config. `PATCH /api/v1/config`
+accepts positive integer updates for `rateLimitPerWindow`, `rateLimitWindowMs`,
+and `bulkMaxItems`. The rate limiter reads the live rate-limit values on every
+request, so operators can tune the threshold and window without redeploying.
+
 ## Project structure
 
 ```

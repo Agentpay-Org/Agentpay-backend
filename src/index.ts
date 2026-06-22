@@ -84,13 +84,14 @@ app.get("/api/v1/admin/status", (_req: Request, res: Response) => {
   res.json({ paused });
 });
 
+const DEFAULT_RATE_LIMIT_PER_WINDOW = 60;
+const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
+
 // Mutable in-process config; persisted in memory only. /config GET
-// returns the live values, /config PATCH updates them. Initial values
-// are filled lazily in the GET handler to avoid forward-reference
-// ordering issues with the underlying constants.
+// returns the live values, /config PATCH updates them.
 const config: Record<string, number> = {
-  rateLimitPerWindow: 60,
-  rateLimitWindowMs: 60_000,
+  rateLimitPerWindow: DEFAULT_RATE_LIMIT_PER_WINDOW,
+  rateLimitWindowMs: DEFAULT_RATE_LIMIT_WINDOW_MS,
   bulkMaxItems: 100,
   eventLogCap: 10_000,
 };
@@ -197,24 +198,24 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   });
 });
 
-// Minimal in-process rate limiter: 60 requests per IP per 60 second
-// window. A sliding window keyed by source IP; in-memory so the limiter
-// resets on process restart.
-const RATE_LIMIT_PER_WINDOW = 60;
-const RATE_LIMIT_WINDOW_MS = 60_000;
+// Minimal in-process rate limiter. Reads the live /config values on every
+// request so operators can tune the window and threshold without redeploying.
+// A sliding window keyed by source IP; in-memory so the limiter resets on
+// process restart.
 const rateBuckets = new Map<string, number[]>();
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (process.env.NODE_ENV === "test") return next();
   const ip = req.ip ?? req.socket.remoteAddress ?? "unknown";
   const now = Date.now();
-  const bucket = (rateBuckets.get(ip) ?? []).filter(
-    (t) => now - t < RATE_LIMIT_WINDOW_MS
-  );
-  if (bucket.length >= RATE_LIMIT_PER_WINDOW) {
-    res.setHeader("Retry-After", "60");
+  const limit = config.rateLimitPerWindow;
+  const windowMs = config.rateLimitWindowMs;
+  const bucket = (rateBuckets.get(ip) ?? []).filter((t) => now - t < windowMs);
+  if (bucket.length >= limit) {
+    const retryAfterSeconds = Math.ceil(windowMs / 1000);
+    res.setHeader("Retry-After", String(retryAfterSeconds));
     res.status(429).json({
       error: "rate_limited",
-      message: `more than ${RATE_LIMIT_PER_WINDOW} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s`,
+      message: `more than ${limit} requests per ${retryAfterSeconds}s`,
       requestId: (req as Request & { id?: string }).id,
     });
     return;
