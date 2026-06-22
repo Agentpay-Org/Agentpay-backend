@@ -39,6 +39,15 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
    ```
    Server runs at `http://localhost:3001`. Try `GET /health` and `GET /api/v1/version`.
 
+## Security headers
+
+The API uses Helmet for standard browser-facing security headers. Its CSP is
+tuned for a JSON API with `default-src 'none'` and `frame-ancestors 'none'`;
+inline script execution, eval, external assets, and frame embedding are not
+allowed. HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: no-referrer`, and the existing `Permissions-Policy`
+restrictions are applied to JSON, CSV, and metrics responses.
+
 ## Project structure
 
 ```

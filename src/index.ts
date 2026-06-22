@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
+import helmet from "helmet";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -34,17 +35,46 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.use(express.json({ limit: "100kb" }));
 
-// Minimal security headers — same shape Helmet would produce but without
-// the dependency footprint. Lets us start hardening the response surface
-// before deciding on a full Helmet/CSP policy.
+/**
+ * Helmet owns the browser-facing security header set for this JSON API.
+ * The CSP denies all fetch, execution, and framing targets; HSTS, frame
+ * denial, referrer policy, and nosniff preserve the previous hand-set
+ * behavior while letting Helmet maintain the rest of the header surface.
+ */
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        defaultSrc: ["'none'"],
+        baseUri: ["'none'"],
+        connectSrc: ["'none'"],
+        fontSrc: ["'none'"],
+        formAction: ["'none'"],
+        frameAncestors: ["'none'"],
+        imgSrc: ["'none'"],
+        manifestSrc: ["'none'"],
+        mediaSrc: ["'none'"],
+        objectSrc: ["'none'"],
+        scriptSrc: ["'none'"],
+        styleSrc: ["'none'"],
+        workerSrc: ["'none'"],
+      },
+    },
+    referrerPolicy: { policy: "no-referrer" },
+    strictTransportSecurity: {
+      maxAge: 63_072_000,
+      includeSubDomains: true,
+      preload: true,
+    },
+    xContentTypeOptions: true,
+    xFrameOptions: { action: "deny" },
+  })
+);
+
+// Helmet does not currently emit Permissions-Policy, so keep the API's
+// existing browser permission restrictions alongside the Helmet-managed set.
 app.use((_req: Request, res: Response, next: NextFunction) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Referrer-Policy", "no-referrer");
-  res.setHeader(
-    "Strict-Transport-Security",
-    "max-age=63072000; includeSubDomains; preload"
-  );
   res.setHeader("Permissions-Policy", "geolocation=(), camera=(), microphone=()");
   next();
 });
