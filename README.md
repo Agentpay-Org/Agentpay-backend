@@ -39,6 +39,21 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
    ```
    Server runs at `http://localhost:3001`. Try `GET /health` and `GET /api/v1/version`.
 
+## Authentication
+
+By default the API remains open for local development. Set
+`REQUIRE_API_KEY=true` to require a valid `X-API-Key` on every non-read request
+while keeping `GET`, `HEAD`, and `OPTIONS` open for dashboards and health
+checks.
+
+Create tenant API keys with `POST /api/v1/api-keys` before enabling
+enforcement. The backend stores only SHA-256 hashes of generated keys and lists
+only each key's 8-character prefix.
+
+Admin writes under `POST /api/v1/admin/*` are privileged when enforcement is
+enabled. They require `X-API-Key` to match `ADMIN_API_KEY`; tenant API keys are
+not accepted for those routes.
+
 ## Project structure
 
 ```

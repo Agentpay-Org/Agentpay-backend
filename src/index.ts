@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
+import { apiKeyMatchesHash, hashApiKey, secureStringEqual } from "./auth/apiKeys.js";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -59,6 +60,79 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   (req as Request & { id: string }).id = id;
   res.setHeader("X-Request-Id", id);
   next();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API key authentication
+// ─────────────────────────────────────────────────────────────────────────────
+// Store only hashes of generated API keys. The prefix remains in metadata for
+// safe operator display and revocation without exposing the live secret.
+type ApiKeyRecord = { prefix: string; label: string; createdAt: number };
+const apiKeyStore = new Map<string, ApiKeyRecord>();
+const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+function findApiKeyHash(candidate: string) {
+  let matched: string | undefined;
+  for (const storedHash of apiKeyStore.keys()) {
+    if (apiKeyMatchesHash(candidate, storedHash)) matched = storedHash;
+  }
+  return matched;
+}
+
+function unauthorized(req: Request, res: Response, message: string) {
+  res.status(401).json({
+    error: "unauthorized",
+    message,
+    requestId: (req as Request & { id?: string }).id,
+  });
+}
+
+/**
+ * Recognize valid tenant API keys and, when REQUIRE_API_KEY=true, require
+ * authentication on all non-read methods. Admin writes use ADMIN_API_KEY
+ * instead of tenant keys.
+ */
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const supplied = req.header("x-api-key");
+  const tenantKeyHash =
+    typeof supplied === "string" ? findApiKeyHash(supplied) : undefined;
+  if (tenantKeyHash) {
+    (req as Request & { apiKey?: string }).apiKey = tenantKeyHash;
+  }
+
+  if (process.env.REQUIRE_API_KEY !== "true") {
+    next();
+    return;
+  }
+
+  const method = req.method.toUpperCase();
+  if (READ_METHODS.has(method)) {
+    next();
+    return;
+  }
+
+  if (method === "POST" && req.path.startsWith("/api/v1/admin/")) {
+    const adminKey = process.env.ADMIN_API_KEY;
+    if (
+      typeof supplied === "string" &&
+      supplied.length > 0 &&
+      typeof adminKey === "string" &&
+      adminKey.length > 0 &&
+      secureStringEqual(supplied, adminKey)
+    ) {
+      next();
+      return;
+    }
+    unauthorized(req, res, "valid admin API key required");
+    return;
+  }
+
+  if (tenantKeyHash) {
+    next();
+    return;
+  }
+
+  unauthorized(req, res, "valid API key required");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,25 +235,6 @@ app.get("/api/v1/stats", (_req: Request, res: Response) => {
     uniqueAgents: agents.size,
     paused,
   });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// API keys
-// ─────────────────────────────────────────────────────────────────────────────
-// In-memory map of opaque api keys to { label, createdAt }. The CRUD
-// endpoints are wired in subsequent commits; this commit adds the
-// store and the optional X-API-Key recognition middleware that flags
-// req.apiKey for downstream handlers without yet rejecting unkeyed
-// requests (so the API stays open until the admin opts in).
-type ApiKeyRecord = { label: string; createdAt: number };
-const apiKeyStore = new Map<string, ApiKeyRecord>();
-
-app.use((req: Request, res: Response, next: NextFunction) => {
-  const supplied = req.header("x-api-key");
-  if (typeof supplied === "string" && apiKeyStore.has(supplied)) {
-    (req as Request & { apiKey?: string }).apiKey = supplied;
-  }
-  next();
 });
 
 // Pause guard: when admin has paused the system, refuse every
@@ -887,9 +942,9 @@ app.get("/api/v1/services", (req: Request, res: Response) => {
 app.delete("/api/v1/api-keys/:prefix", (req: Request, res: Response) => {
   const { prefix } = req.params;
   let found: string | undefined;
-  for (const key of apiKeyStore.keys()) {
-    if (key.slice(0, 8) === prefix) {
-      found = key;
+  for (const [hash, meta] of apiKeyStore.entries()) {
+    if (meta.prefix === prefix) {
+      found = hash;
       break;
     }
   }
@@ -907,10 +962,10 @@ app.delete("/api/v1/api-keys/:prefix", (req: Request, res: Response) => {
 
 /** List api keys with their metadata; never returns the key itself. */
 app.get("/api/v1/api-keys", (_req: Request, res: Response) => {
-  const items = Array.from(apiKeyStore.entries()).map(([key, meta]) => ({
+  const items = Array.from(apiKeyStore.values()).map((meta) => ({
     // Show only a short prefix so operators can disambiguate without
     // exposing the full token in logs.
-    prefix: key.slice(0, 8),
+    prefix: meta.prefix,
     label: meta.label,
     createdAt: meta.createdAt,
   }));
@@ -930,7 +985,11 @@ app.post("/api/v1/api-keys", (req: Request, res: Response) => {
     return;
   }
   const key = `apk_${randomUUID().replace(/-/g, "")}`;
-  apiKeyStore.set(key, { label, createdAt: Date.now() });
+  apiKeyStore.set(hashApiKey(key), {
+    prefix: key.slice(0, 8),
+    label,
+    createdAt: Date.now(),
+  });
   res.status(201).json({ key, label });
 });
 
