@@ -74,9 +74,7 @@ On push/PR to `main`, GitHub Actions runs:
 
 ## Contributing
 
-1. Fork the repo and create a branch.
-2. Make changes; ensure `npm run lint`, `npm run build`, and `npm test` pass.
-3. Open a pull request. CI must pass before merge.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contributor setup, branch naming, commit style, verification checks, and pull request expectations.
 
 ## License
 
