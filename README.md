@@ -7,6 +7,17 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
 - **Stack:** Node.js, Express, TypeScript
 - **Endpoints:** Health check, version, and placeholders for usage/billing APIs
 
+## Idempotent writes
+
+`POST /api/v1/usage`, `POST /api/v1/usage/bulk`, and `POST /api/v1/settle`
+accept an optional `Idempotency-Key` header. Repeating the same key with the same
+request body returns the first status and JSON body with
+`Idempotency-Replayed: true`, without mutating usage or settlement state again.
+Reusing the same key with a different body returns `409 idempotency_conflict`.
+
+The cache is in-memory, capped, and expires entries by age. See
+[docs/idempotency.md](docs/idempotency.md).
+
 ## Prerequisites
 
 - Node.js 18.18+
