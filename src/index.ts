@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
+import { logger } from "./logger.js";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -235,17 +236,16 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     if (!res.headersSent) {
       res.setHeader("Server-Timing", `app;dur=${ms.toFixed(1)}`);
     }
-    if (process.env.NODE_ENV !== "test") {
-      console.log(
-        JSON.stringify({
-          requestId: (req as Request & { id?: string }).id,
-          method: req.method,
-          path: req.path,
-          status: res.statusCode,
-          durationMs: Math.round(ms * 10) / 10,
-        })
-      );
-    }
+    logger.info(
+      {
+        requestId: (req as Request & { id?: string }).id,
+        method: req.method,
+        path: req.path,
+        status: res.statusCode,
+        durationMs: Math.round(ms * 10) / 10,
+      },
+      "request completed"
+    );
   });
   next();
 });
@@ -1113,6 +1113,16 @@ app.use((req: Request, res: Response) => {
 // uniform JSON so clients can branch on `error` and operators can grep
 // `requestId` to find the matching log line.
 app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  const requestId = (req as Request & { id?: string }).id;
+  logger.error(
+    {
+      err,
+      requestId,
+      method: req.method,
+      path: req.path,
+    },
+    "request failed"
+  );
   // Special-case the common entity.too.large from express.json — surface
   // it as a 413 instead of a generic 500 so clients can branch on it.
   if (
@@ -1124,7 +1134,7 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
     res.status(413).json({
       error: "payload_too_large",
       message: "request body exceeds the 100 KiB limit",
-      requestId: (req as Request & { id?: string }).id,
+      requestId,
     });
     return;
   }
@@ -1134,29 +1144,29 @@ app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
     message,
     method: req.method,
     path: req.path,
-    requestId: (req as Request & { id?: string }).id,
+    requestId,
   });
 });
 
 if (process.argv[1]?.endsWith("index.js") || process.argv[1]?.endsWith("index.ts")) {
   const server = app.listen(PORT, () => {
-    console.log(`AgentPay backend listening on port ${PORT}`);
+    logger.info({ port: PORT }, "server listening");
   });
 
   // Graceful shutdown. Stop accepting new connections, drain in-flight
   // requests for up to 10 s, then exit. Calling code (PaaS, docker) can
   // safely SIGTERM the process at any time.
   const shutdown = (signal: string) => {
-    console.log(`Received ${signal}, draining…`);
+    logger.info({ signal }, "draining server");
     server.close((err) => {
       if (err) {
-        console.error("server.close error:", err);
+        logger.error({ err }, "server close error");
         process.exit(1);
       }
       process.exit(0);
     });
     setTimeout(() => {
-      console.error("Forced exit after 10s drain timeout");
+      logger.error({ timeoutMs: 10_000 }, "forced exit after drain timeout");
       process.exit(1);
     }, 10_000).unref();
   };

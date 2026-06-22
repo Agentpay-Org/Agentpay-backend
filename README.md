@@ -39,6 +39,12 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
    ```
    Server runs at `http://localhost:3001`. Try `GET /health` and `GET /api/v1/version`.
 
+## Configuration
+
+| Variable    | Default                    | Description                                     |
+| ----------- | -------------------------- | ----------------------------------------------- |
+| `LOG_LEVEL` | `info` (`silent` in tests) | Pino log level for structured application logs. |
+
 ## Project structure
 
 ```
