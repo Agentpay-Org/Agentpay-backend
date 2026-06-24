@@ -155,7 +155,8 @@ void describe("operational routes", () => {
 
     const tested = await request(app).post(`/api/v1/webhooks/${webhookId}/test`);
     assert.strictEqual(tested.status, 200);
-    assert.strictEqual(tested.body.simulated, true);
+    assert.strictEqual(tested.body.delivered, false);
+    assert.ok(tested.body.error);
 
     const events = await request(app).get("/api/v1/events");
     assert.strictEqual(events.status, 200);
