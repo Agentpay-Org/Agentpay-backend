@@ -1,8 +1,13 @@
+import { createStoreMap, createStoreSet, flushStores } from "./index.js";
+
+export { flushStores };
+
 /**
- * Mutable process-local stores used by the in-memory AgentPay API.
+ * Mutable stores used by the AgentPay API.
  *
- * These exports preserve the existing development behavior: state lives only
- * for the lifetime of the Node process and resets on restart.
+ * The default storage driver is in-memory. Set STORAGE_DRIVER=file to back
+ * service, usage, API-key, metadata, disabled-service, and webhook stores with
+ * JSON files that survive process restarts.
  */
 
 export type ApiKeyRecord = { label: string; createdAt: number };
@@ -21,25 +26,25 @@ export const config: Record<string, number> = {
 };
 
 /** Opaque API keys keyed by full secret token. */
-export const apiKeyStore = new Map<string, ApiKeyRecord>();
+export const apiKeyStore = createStoreMap<ApiKeyRecord>("api-keys");
 
 /** Outstanding usage counters keyed by `${agent}::${serviceId}`. */
-export const usageStore = new Map<string, number>();
+export const usageStore = createStoreMap<number>("usage");
 
 /** Builds the shared in-memory usage key for an agent/service pair. */
 export const usageKey = (agent: string, serviceId: string) => `${agent}::${serviceId}`;
 
 /** Registered services and their per-request prices. */
-export const servicesStore = new Map<string, { priceStroops: number }>();
+export const servicesStore = createStoreMap<{ priceStroops: number }>("services");
 
 /** Services currently disabled for write traffic. */
-export const servicesDisabled = new Set<string>();
+export const servicesDisabled = createStoreSet("services-disabled");
 
 /** Optional service description/owner metadata. */
-export const servicesMetadata = new Map<string, ServiceMetadataDto>();
+export const servicesMetadata = createStoreMap<ServiceMetadataDto>("services-metadata");
 
 /** Registered webhooks and their event subscriptions. */
-export const webhookStore = new Map<string, WebhookRecord>();
+export const webhookStore = createStoreMap<WebhookRecord>("webhooks");
 
 /** Rate-limiter windows keyed by source IP. */
 export const rateBuckets = new Map<string, number[]>();
