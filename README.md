@@ -68,6 +68,10 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
+## Request IDs
+
+AgentPay echoes `X-Request-Id` into response headers, structured logs, and error bodies for correlation. Caller-provided IDs are accepted only when they match `^[A-Za-z0-9._-]{1,200}$`. Missing, empty, oversized, or control-character values are replaced with a fresh UUID before the value reaches a header, log line, or response body.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:

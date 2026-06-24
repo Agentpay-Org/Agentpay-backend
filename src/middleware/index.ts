@@ -14,6 +14,8 @@ import {
 } from "../store/state.js";
 import type { AgentPayRequest } from "../types.js";
 
+const SAFE_REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{1,200}$/;
+
 /**
  * Installs middleware that must run before the early admin/config/metrics
  * routes.
@@ -88,10 +90,20 @@ function securityHeadersMiddleware(
 /** Attaches or echoes X-Request-Id on every request. */
 function requestIdMiddleware(req: Request, res: Response, next: NextFunction): void {
   const incoming = req.header("x-request-id");
-  const id = incoming && incoming.length <= 200 ? incoming : randomUUID();
+  const id = sanitizeRequestId(incoming);
   (req as AgentPayRequest).id = id;
   res.setHeader("X-Request-Id", id);
   next();
+}
+
+/**
+ * Accepts only gateway-safe request IDs for echoing into headers, logs, and
+ * error bodies. Invalid, empty, oversized, or control-character values are
+ * replaced with a fresh UUID.
+ */
+export function sanitizeRequestId(incoming: string | undefined): string {
+  if (incoming && SAFE_REQUEST_ID_PATTERN.test(incoming)) return incoming;
+  return randomUUID();
 }
 
 /** Recognizes known API keys without requiring them. */
