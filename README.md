@@ -39,6 +39,30 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
    ```
    Server runs at `http://localhost:3001`. Try `GET /health` and `GET /api/v1/version`.
 
+## Persistence
+
+AgentPay uses in-memory stores by default:
+
+```bash
+STORAGE_DRIVER=memory
+```
+
+To keep usage counters, registered services, disabled-service flags, service
+metadata, API keys, and webhooks across process restarts, enable the file
+storage driver:
+
+```bash
+STORAGE_DRIVER=file STORAGE_PATH=.agentpay-store npm start
+```
+
+`STORAGE_PATH` must resolve inside the project directory. The file driver writes
+one JSON file per store and replaces files atomically via a temporary file. Store
+contents are flushed on every write and again during the SIGTERM/SIGINT graceful
+shutdown path.
+
+The on-disk files contain application state, including API key records. Keep the
+storage directory private and out of version control.
+
 ## Project structure
 
 ```
