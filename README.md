@@ -68,6 +68,13 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
+## Query parameters
+
+List endpoints parse numeric query parameters defensively. `limit` falls back
+to each endpoint's default when it is missing, non-numeric, or non-finite, then
+clamps to that endpoint's min/max range. `GET /api/v1/events` also clamps
+`since` to a non-negative integer and falls back to `0` on bad input.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
