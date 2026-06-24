@@ -68,6 +68,38 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
+## Running with Docker
+
+Build the production image from the repository root:
+
+```bash
+docker build -t agentpay-backend .
+```
+
+Run the container on the default port:
+
+```bash
+docker run --rm --name agentpay-backend -p 3001:3001 -e PORT=3001 agentpay-backend
+```
+
+Check the running service:
+
+```bash
+curl http://localhost:3001/health
+```
+
+Stop the container:
+
+```bash
+docker stop agentpay-backend
+```
+
+The image uses a multi-stage build, prunes development dependencies before the
+runtime stage, runs as the non-root `node` user, and starts with exec-form
+`CMD` so Docker forwards `SIGTERM` to the existing graceful shutdown handler.
+Do not bake secrets into the image; pass runtime configuration through
+environment variables.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:

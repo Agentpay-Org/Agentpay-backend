@@ -1,0 +1,14 @@
+.git
+.github
+node_modules
+dist
+coverage
+npm-debug.log*
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+*.patch
+*.tgz
+src/**/*.test.ts
