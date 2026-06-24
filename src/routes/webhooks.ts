@@ -1,8 +1,53 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import { recordEvent } from "../events.js";
+import { type AppEvent, recordEvent } from "../events.js";
 import { webhookStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
+import { createWebhookSecret, deliverSingleWebhook } from "../webhooks/deliver.js";
+
+const publicWebhook = (
+  id: string,
+  meta: {
+    url: string;
+    events: string[];
+    createdAt: number;
+    deadLetters: number;
+  }
+) => ({
+  id,
+  url: meta.url,
+  events: meta.events,
+  createdAt: meta.createdAt,
+  deadLetters: meta.deadLetters,
+});
+
+const testWebhook = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const requestId = getRequestId(req);
+  const hook = webhookStore.get(id);
+  if (!hook) {
+    res.status(404).json({
+      error: "not_found",
+      message: `webhook ${id} not registered`,
+      requestId,
+    });
+    return;
+  }
+  const event: AppEvent = {
+    id: randomUUID(),
+    ts: Date.now(),
+    type: "webhook.test",
+    payload: { id, url: hook.url },
+  };
+  const delivery = await deliverSingleWebhook(id, hook, event);
+  recordEvent("webhook.test", {
+    id,
+    url: hook.url,
+    delivered: delivery.delivered,
+    attempts: delivery.attempts,
+  });
+  res.json({ id, deliveredAt: Date.now(), ...delivery });
+};
 
 /**
  * Builds webhook registration, update, deletion, and synthetic test routes.
@@ -25,27 +70,14 @@ export function createWebhooksRouter(): Router {
   });
 
   router.get("/api/v1/webhooks", (_req, res: Response) => {
-    const items = Array.from(webhookStore.entries()).map(([id, meta]) => ({
-      id,
-      ...meta,
-    }));
+    const items = Array.from(webhookStore.entries()).map(([id, meta]) =>
+      publicWebhook(id, meta)
+    );
     res.json({ items });
   });
 
   router.post("/api/v1/webhooks/:id/test", (req: Request, res: Response) => {
-    const { id } = req.params;
-    const requestId = getRequestId(req);
-    const hook = webhookStore.get(id);
-    if (!hook) {
-      res.status(404).json({
-        error: "not_found",
-        message: `webhook ${id} not registered`,
-        requestId,
-      });
-      return;
-    }
-    recordEvent("webhook.test", { id, url: hook.url });
-    res.json({ id, deliveredAt: Date.now(), simulated: true });
+    void testWebhook(req, res);
   });
 
   router.patch("/api/v1/webhooks/:id", (req: Request, res: Response) => {
@@ -88,7 +120,7 @@ export function createWebhooksRouter(): Router {
       existing.events = events;
     }
     webhookStore.set(id, existing);
-    res.json({ id, ...existing });
+    res.json(publicWebhook(id, existing));
   });
 
   router.post("/api/v1/webhooks", (req: Request, res: Response) => {
@@ -115,8 +147,15 @@ export function createWebhooksRouter(): Router {
       return;
     }
     const id = `wh_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
-    webhookStore.set(id, { url, events, createdAt: Date.now() });
-    res.status(201).json({ id, url, events });
+    const secret = createWebhookSecret();
+    webhookStore.set(id, {
+      url,
+      events,
+      createdAt: Date.now(),
+      secret,
+      deadLetters: 0,
+    });
+    res.status(201).json({ id, url, events, secret });
   });
 
   return router;
