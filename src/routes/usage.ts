@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
 import {
+  config,
   servicesDisabled,
   servicesStore,
   usageKey,
@@ -72,13 +73,17 @@ export function createUsageRouter(): Router {
     res.status(201).json({ agent, serviceId, total });
   });
 
+  /**
+   * Records usage items in one batch using the live bulkMaxItems config.
+   */
   router.post("/api/v1/usage/bulk", (req: Request, res: Response) => {
     const requestId = getRequestId(req);
     const { items } = req.body ?? {};
-    if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
+    const limit = config.bulkMaxItems;
+    if (!Array.isArray(items) || items.length === 0 || items.length > limit) {
       res.status(400).json({
         error: "invalid_request",
-        message: "items must be a non-empty array of up to 100 entries",
+        message: `items must be a non-empty array of up to ${limit} entries`,
         requestId,
       });
       return;

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import {
+  config,
   servicesDisabled,
   servicesMetadata,
   servicesStore,
@@ -14,13 +15,17 @@ import { getRequestId } from "../types.js";
 export function createServicesRouter(): Router {
   const router = Router();
 
+  /**
+   * Registers service items in one batch using the live bulkMaxItems config.
+   */
   router.post("/api/v1/services/bulk", (req: Request, res: Response) => {
     const requestId = getRequestId(req);
     const { items } = req.body ?? {};
-    if (!Array.isArray(items) || items.length === 0 || items.length > 50) {
+    const limit = config.bulkMaxItems;
+    if (!Array.isArray(items) || items.length === 0 || items.length > limit) {
       res.status(400).json({
         error: "invalid_request",
-        message: "items must be 1-50 entries",
+        message: `items must be a non-empty array of up to ${limit} entries`,
         requestId,
       });
       return;

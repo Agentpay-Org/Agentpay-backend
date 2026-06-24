@@ -350,7 +350,7 @@ void describe("POST /api/v1/services/bulk", () => {
     ["empty items array", { items: [] }],
     ["items not an array", { items: "bad" }],
     ["missing items key", {}],
-    ["items > 50", { items: Array.from({ length: 51 }, (_, i) => ({ serviceId: `s${i}`, priceStroops: 1 })) }],
+    ["items > 100", { items: Array.from({ length: 101 }, (_, i) => ({ serviceId: `s${i}`, priceStroops: 1 })) }],
   ] as const) {
     void it(`bulk rejects ${label} with 400`, async () => {
       const res = await request(app).post("/api/v1/services/bulk").send(body);

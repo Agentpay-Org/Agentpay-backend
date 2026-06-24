@@ -68,6 +68,18 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
+## Runtime configuration
+
+`GET /api/v1/config` returns the active in-memory runtime configuration.
+`PATCH /api/v1/config` accepts positive integer updates for supported keys.
+
+`bulkMaxItems` defaults to `100` and is capped at `1000` to avoid
+memory-exhaustion batches. The value controls both `POST /api/v1/usage/bulk`
+and `POST /api/v1/services/bulk`; changes take effect on the next request.
+Requests with zero items or more than the active limit return the existing
+`400 invalid_request` response shape with a message that includes the active
+limit. At-limit batches keep the existing per-item partial-success response.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:

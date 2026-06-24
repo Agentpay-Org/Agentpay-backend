@@ -13,6 +13,8 @@ export type WebhookRecord = { url: string; events: string[]; createdAt: number }
 export const pauseState = { paused: false };
 
 /** Runtime-tunable in-memory configuration returned by /api/v1/config. */
+export const BULK_MAX_ITEMS_MAX = 1_000;
+
 export const config: Record<string, number> = {
   rateLimitPerWindow: 60,
   rateLimitWindowMs: 60_000,

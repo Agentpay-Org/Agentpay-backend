@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { config } from "../store/state.js";
+import { BULK_MAX_ITEMS_MAX, config } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
 const allowedConfigKeys = [
@@ -7,6 +7,12 @@ const allowedConfigKeys = [
   "rateLimitWindowMs",
   "bulkMaxItems",
 ] as const;
+
+type ConfigKey = (typeof allowedConfigKeys)[number];
+
+const maxConfigValues: Partial<Record<ConfigKey, number>> = {
+  bulkMaxItems: BULK_MAX_ITEMS_MAX,
+};
 
 /**
  * Builds the runtime config router.
@@ -24,10 +30,19 @@ export function createConfigRouter(): Router {
     for (const k of allowedConfigKeys) {
       if (k in updates) {
         const v = updates[k];
-        if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) {
+        const max = maxConfigValues[k];
+        if (
+          typeof v !== "number" ||
+          !Number.isInteger(v) ||
+          v <= 0 ||
+          (max !== undefined && v > max)
+        ) {
           res.status(400).json({
             error: "invalid_request",
-            message: `${k} must be a positive integer`,
+            message:
+              max === undefined
+                ? `${k} must be a positive integer`
+                : `${k} must be a positive integer up to ${max}`,
             requestId,
           });
           return;
