@@ -2,7 +2,7 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert";
 import request from "supertest";
 import { createApp } from "../index.js";
-import { eventLog } from "../events.js";
+import { clearEventLog } from "../events.js";
 import {
   apiKeyStore,
   config,
@@ -23,7 +23,7 @@ const defaultConfig = {
 
 beforeEach(() => {
   apiKeyStore.clear();
-  eventLog.length = 0;
+  clearEventLog();
   servicesDisabled.clear();
   servicesMetadata.clear();
   servicesStore.clear();
