@@ -3,8 +3,11 @@ import { recordEvent } from "../events.js";
 import {
   servicesDisabled,
   servicesStore,
+  usageByAgent,
   usageKey,
   usageStore,
+  usageTotalsByAgent,
+  usageTotalsByService,
 } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
@@ -144,8 +147,7 @@ export function createUsageRouter(): Router {
 
   router.get("/api/v1/billing/total", (_req, res: Response) => {
     let totalStroops = 0;
-    for (const [key, requests] of usageStore.entries()) {
-      const [, serviceId] = key.split("::");
+    for (const [serviceId, requests] of usageTotalsByService.entries()) {
       const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
       totalStroops += requests * price;
     }
@@ -190,19 +192,13 @@ export function createUsageRouter(): Router {
       1000,
       Math.max(1, Number((req.query.limit as string) ?? 200))
     );
-    const seen = new Set<string>();
-    for (const key of usageStore.keys()) seen.add(key.split("::")[0]);
-    const agents = Array.from(seen).slice(0, limit);
+    const agents = Array.from(usageByAgent.keys()).slice(0, limit);
     res.json({ agents });
   });
 
   router.get("/api/v1/agents/:agent/total", (req: Request, res: Response) => {
     const { agent } = req.params;
-    const prefix = `${agent}::`;
-    let total = 0;
-    for (const [key, n] of usageStore.entries()) {
-      if (key.startsWith(prefix)) total += n;
-    }
+    const total = usageTotalsByAgent.get(agent) ?? 0;
     res.json({ agent, total });
   });
 
@@ -210,10 +206,11 @@ export function createUsageRouter(): Router {
     const { agent } = req.params;
     const prefix = `${agent}::`;
     const items: { serviceId: string; total: number }[] = [];
-    for (const [key, total] of usageStore.entries()) {
-      if (key.startsWith(prefix)) {
-        items.push({ serviceId: key.slice(prefix.length), total });
-      }
+    for (const key of usageByAgent.get(agent) ?? []) {
+      items.push({
+        serviceId: key.slice(prefix.length),
+        total: usageStore.get(key) ?? 0,
+      });
     }
     res.json({ agent, items });
   });
