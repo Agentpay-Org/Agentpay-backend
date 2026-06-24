@@ -15,6 +15,66 @@ type BulkUsageResult = {
   error?: string;
 };
 
+type ValidUsageItem = {
+  agent: string;
+  serviceId: string;
+  requests: number;
+};
+
+type UsageInput = {
+  agent?: unknown;
+  serviceId?: unknown;
+  requests?: unknown;
+};
+
+type UsageValidationError =
+  | "invalid_agent"
+  | "invalid_serviceId"
+  | "invalid_requests"
+  | "service_disabled";
+
+type UsageValidationResult =
+  | ({ ok: true } & ValidUsageItem)
+  | { ok: false; error: UsageValidationError };
+
+/**
+ * Validates usage writes for both single and bulk ingestion paths so identifier
+ * length caps and disabled-service checks cannot drift between endpoints.
+ */
+function validateUsageItem(input: UsageInput): UsageValidationResult {
+  const { agent, serviceId, requests } = input;
+  if (typeof agent !== "string" || agent.length === 0 || agent.length > 256) {
+    return { ok: false, error: "invalid_agent" };
+  }
+  if (
+    typeof serviceId !== "string" ||
+    serviceId.length === 0 ||
+    serviceId.length > 128
+  ) {
+    return { ok: false, error: "invalid_serviceId" };
+  }
+  if (typeof requests !== "number" || !Number.isInteger(requests) || requests <= 0) {
+    return { ok: false, error: "invalid_requests" };
+  }
+  if (servicesDisabled.has(serviceId)) {
+    return { ok: false, error: "service_disabled" };
+  }
+  return { ok: true, agent, serviceId, requests };
+}
+
+function usageValidationMessage(error: UsageValidationError, serviceId?: string): string {
+  switch (error) {
+    case "invalid_agent":
+      return "agent must be a non-empty string up to 256 chars";
+    case "invalid_serviceId":
+      return "serviceId must be a non-empty string up to 128 chars";
+    case "invalid_requests":
+      return "requests must be a positive integer";
+    case "service_disabled":
+      return `service ${serviceId ?? "unknown"} is currently disabled`;
+  }
+}
+
 /**
  * Builds usage, billing, settlement, and agent rollup routes.
  */
@@ -22,47 +82,25 @@ export function createUsageRouter(): Router {
   const router = Router();
 
   router.post("/api/v1/usage", (req: Request, res: Response) => {
-    const { agent, serviceId, requests } = req.body ?? {};
+    const body = (req.body ?? {}) as UsageInput;
+    const result = validateUsageItem(body);
     const requestId = getRequestId(req);
 
-    if (typeof agent !== "string" || agent.length === 0 || agent.length > 256) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "agent must be a non-empty string up to 256 chars",
-        requestId,
-      });
-      return;
-    }
-    if (
-      typeof serviceId !== "string" ||
-      serviceId.length === 0 ||
-      serviceId.length > 128
-    ) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "serviceId must be a non-empty string up to 128 chars",
-        requestId,
-      });
-      return;
-    }
-    if (typeof requests !== "number" || !Number.isInteger(requests) || requests <= 0) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "requests must be a positive integer",
+    if (!result.ok) {
+      const status = result.error === "service_disabled" ? 409 : 400;
+      const error = result.error === "service_disabled" ? "service_disabled" : "invalid_request";
+      res.status(status).json({
+        error,
+        message: usageValidationMessage(
+          result.error,
+          typeof body.serviceId === "string" ? body.serviceId : undefined
+        ),
         requestId,
       });
       return;
     }
 
-    if (servicesDisabled.has(serviceId)) {
-      res.status(409).json({
-        error: "service_disabled",
-        message: `service ${serviceId} is currently disabled`,
-        requestId,
-      });
-      return;
-    }
-
+    const { agent, serviceId, requests } = result;
     const key = usageKey(agent, serviceId);
     const prev = usageStore.get(key) ?? 0;
     const total = Math.min(Number.MAX_SAFE_INTEGER, prev + requests);
@@ -85,17 +123,16 @@ export function createUsageRouter(): Router {
     }
     const results: BulkUsageResult[] = [];
     for (let i = 0; i < items.length; i++) {
-      const { agent, serviceId, requests } = items[i] ?? {};
-      if (
-        typeof agent !== "string" ||
-        typeof serviceId !== "string" ||
-        typeof requests !== "number" ||
-        !Number.isInteger(requests) ||
-        requests <= 0
-      ) {
-        results.push({ index: i, ok: false, error: "invalid_item" });
+      const result = validateUsageItem((items[i] ?? {}) as UsageInput);
+      if (!result.ok) {
+        results.push({
+          index: i,
+          ok: false,
+          error: result.error === "service_disabled" ? "service_disabled" : "invalid_item",
+        });
         continue;
       }
+      const { agent, serviceId, requests } = result;
       const key = usageKey(agent, serviceId);
       const total = Math.min(
         Number.MAX_SAFE_INTEGER,

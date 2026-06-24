@@ -68,6 +68,14 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
+## Usage validation
+
+Single and bulk usage writes share the same identifier and request-count
+validation. `agent` must be non-empty and at most 256 characters, `serviceId`
+must be non-empty and at most 128 characters, and `requests` must be a positive
+integer. Bulk writes preserve partial success but report disabled services as
+`service_disabled` and malformed rows as `invalid_item`.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
