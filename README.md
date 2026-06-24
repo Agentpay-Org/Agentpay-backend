@@ -7,6 +7,10 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
 - **Stack:** Node.js, Express, TypeScript
 - **Endpoints:** Health check, version, and placeholders for usage/billing APIs
 
+## Documentation
+
+- [Audit event taxonomy and payload schemas](docs/events.md)
+
 ## Prerequisites
 
 - Node.js 18.18+
