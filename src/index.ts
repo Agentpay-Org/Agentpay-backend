@@ -13,6 +13,7 @@ import { createMetricsRouter } from "./routes/metrics.js";
 import { createServicesRouter } from "./routes/services.js";
 import { createUsageRouter } from "./routes/usage.js";
 import { createWebhooksRouter } from "./routes/webhooks.js";
+import { flushStores } from "./store/state.js";
 
 const PORT = process.env.PORT ?? 3001;
 
@@ -50,10 +51,16 @@ if (process.argv[1]?.endsWith("index.js") || process.argv[1]?.endsWith("index.ts
   });
 
   const shutdown = (signal: string) => {
-    console.log(`Received ${signal}, draining…`);
+    console.log(`Received ${signal}, draining...`);
     server.close((err) => {
       if (err) {
         console.error("server.close error:", err);
+        process.exit(1);
+      }
+      try {
+        flushStores();
+      } catch (flushErr) {
+        console.error("store flush error:", flushErr);
         process.exit(1);
       }
       process.exit(0);
