@@ -7,7 +7,13 @@
 
 export type ApiKeyRecord = { label: string; createdAt: number };
 export type ServiceMetadataDto = { description: string; owner: string };
-export type WebhookRecord = { url: string; events: string[]; createdAt: number };
+export type WebhookRecord = {
+  url: string;
+  events: string[];
+  createdAt: number;
+  secret: string;
+  deadLetters: number;
+};
 
 /** Mirrors the on-chain pause flag for write-gated endpoints. */
 export const pauseState = { paused: false };
