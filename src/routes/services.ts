@@ -4,7 +4,9 @@ import {
   servicesDisabled,
   servicesMetadata,
   servicesStore,
+  usageByService,
   usageStore,
+  usageTotalsByService,
 } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
@@ -80,15 +82,8 @@ export function createServicesRouter(): Router {
 
   router.get("/api/v1/services/:serviceId/usage", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const suffix = `::${serviceId}`;
-    let total = 0;
-    let agents = 0;
-    for (const [key, value] of usageStore.entries()) {
-      if (key.endsWith(suffix)) {
-        total += value;
-        agents++;
-      }
-    }
+    const total = usageTotalsByService.get(serviceId) ?? 0;
+    const agents = usageByService.get(serviceId)?.size ?? 0;
     res.json({ serviceId, total, agents });
   });
 
@@ -102,10 +97,11 @@ export function createServicesRouter(): Router {
       );
       const suffix = `::${serviceId}`;
       const items: { agent: string; total: number }[] = [];
-      for (const [key, total] of usageStore.entries()) {
-        if (key.endsWith(suffix)) {
-          items.push({ agent: key.slice(0, key.length - suffix.length), total });
-        }
+      for (const key of usageByService.get(serviceId) ?? []) {
+        items.push({
+          agent: key.slice(0, key.length - suffix.length),
+          total: usageStore.get(key) ?? 0,
+        });
       }
       items.sort((a, b) => b.total - a.total);
       res.json({ serviceId, items: items.slice(0, limit) });
@@ -116,10 +112,11 @@ export function createServicesRouter(): Router {
     const { serviceId } = req.params;
     const suffix = `::${serviceId}`;
     const items: { agent: string; total: number }[] = [];
-    for (const [key, total] of usageStore.entries()) {
-      if (key.endsWith(suffix)) {
-        items.push({ agent: key.slice(0, key.length - suffix.length), total });
-      }
+    for (const key of usageByService.get(serviceId) ?? []) {
+      items.push({
+        agent: key.slice(0, key.length - suffix.length),
+        total: usageStore.get(key) ?? 0,
+      });
     }
     res.json({ serviceId, items });
   });
