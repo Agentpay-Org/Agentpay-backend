@@ -68,6 +68,18 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
+## Server timeouts / DoS hardening
+
+The HTTP server configures bounded timeouts after startup:
+
+- `REQUEST_TIMEOUT_MS` defaults to `120000`.
+- `HEADERS_TIMEOUT_MS` defaults to `65000`.
+- `KEEPALIVE_TIMEOUT_MS` defaults to `5000`.
+
+Invalid, zero, or negative timeout overrides fall back to the defaults.
+`HEADERS_TIMEOUT_MS` is raised when needed so it is always at least
+`KEEPALIVE_TIMEOUT_MS`.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:

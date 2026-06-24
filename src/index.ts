@@ -13,6 +13,7 @@ import { createMetricsRouter } from "./routes/metrics.js";
 import { createServicesRouter } from "./routes/services.js";
 import { createUsageRouter } from "./routes/usage.js";
 import { createWebhooksRouter } from "./routes/webhooks.js";
+import { configureServerTimeouts } from "./serverTimeouts.js";
 
 const PORT = process.env.PORT ?? 3001;
 
@@ -48,6 +49,7 @@ if (process.argv[1]?.endsWith("index.js") || process.argv[1]?.endsWith("index.ts
   const server = app.listen(PORT, () => {
     console.log(`AgentPay backend listening on port ${PORT}`);
   });
+  configureServerTimeouts(server);
 
   const shutdown = (signal: string) => {
     console.log(`Received ${signal}, draining…`);
