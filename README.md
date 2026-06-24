@@ -68,6 +68,12 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
+## Service deletion
+
+Deleting a service removes the service record plus service-scoped metadata and
+disabled state, and emits a `service.deleted` audit event. Outstanding usage
+counters are retained so historical metering remains visible after deletion.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:

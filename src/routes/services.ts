@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
+import { recordEvent } from "../events.js";
 import {
   servicesDisabled,
   servicesMetadata,
@@ -242,6 +243,7 @@ export function createServicesRouter(): Router {
     res.json({ serviceId, ...meta });
   });
 
+  /** Deletes a service and clears service-scoped metadata and disabled state. */
   router.delete("/api/v1/services/:serviceId", (req: Request, res: Response) => {
     const { serviceId } = req.params;
     if (!servicesStore.has(serviceId)) {
@@ -253,6 +255,9 @@ export function createServicesRouter(): Router {
       return;
     }
     servicesStore.delete(serviceId);
+    servicesMetadata.delete(serviceId);
+    servicesDisabled.delete(serviceId);
+    recordEvent("service.deleted", { serviceId });
     res.status(204).send();
   });
 
