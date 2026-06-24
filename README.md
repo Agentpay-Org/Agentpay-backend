@@ -44,8 +44,13 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
 ```
 agentpay-backend/
 ├── src/
-│   ├── index.ts          # Express app and routes
-│   └── health.test.ts    # Tests
+│   ├── index.ts          # Thin Express composition root that exports app
+│   ├── events.ts         # Bounded in-memory audit event log helpers
+│   ├── middleware/       # CORS, security headers, request id, pause, rate limit
+│   ├── routes/           # Feature routers for admin, usage, services, keys, webhooks
+│   ├── store/            # In-memory stores and shared state helpers
+│   ├── health.test.ts    # App-level regression tests
+│   └── services.test.ts  # Service registry tests
 ├── package.json
 ├── tsconfig.json
 └── .github/workflows/
