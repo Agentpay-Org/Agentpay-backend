@@ -40,15 +40,13 @@ export function installRequestStateMiddleware(app: Application): void {
  * CORS allowlist middleware backed by CORS_ALLOWED_ORIGINS.
  */
 function createCorsMiddleware() {
-  const corsAllowed = (process.env.CORS_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const corsAllowed = parseCorsOrigins(process.env.CORS_ALLOWED_ORIGINS ?? "");
 
   return (req: Request, res: Response, next: NextFunction) => {
     const origin = req.header("origin");
-    if (origin && corsAllowed.includes(origin)) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
+    const normalizedOrigin = origin ? normalizeCorsOrigin(origin) : undefined;
+    if (normalizedOrigin && corsAllowed.has(normalizedOrigin)) {
+      res.setHeader("Access-Control-Allow-Origin", normalizedOrigin);
       res.setHeader("Vary", "Origin");
       res.setHeader(
         "Access-Control-Allow-Methods",
@@ -66,6 +64,62 @@ function createCorsMiddleware() {
     }
     next();
   };
+}
+
+/**
+ * Parses CORS_ALLOWED_ORIGINS into normalized HTTP(S) origins.
+ *
+ * Rules:
+ * - comma-separated entries are trimmed
+ * - HTTP(S) scheme and host are normalized through URL.origin
+ * - a single trailing slash is accepted and stripped
+ * - malformed entries are logged and skipped
+ * - "*" is rejected instead of silently behaving like an inert entry
+ */
+export function parseCorsOrigins(
+  rawOrigins: string,
+  logInvalidEntry: (message: string) => void = console.warn
+): Set<string> {
+  const origins = new Set<string>();
+  for (const entry of rawOrigins.split(",")) {
+    const candidate = entry.trim();
+    if (!candidate) continue;
+    if (candidate === "*") {
+      throw new Error(
+        "CORS_ALLOWED_ORIGINS does not support '*'. Configure explicit http(s) origins; wildcard origins are disabled because credentialed CORS may be added later."
+      );
+    }
+    const normalized = normalizeCorsOrigin(candidate);
+    if (!normalized) {
+      logInvalidEntry(
+        `Skipping invalid CORS_ALLOWED_ORIGINS entry "${candidate}": expected an http(s) origin without path, credentials, query, or fragment.`
+      );
+      continue;
+    }
+    origins.add(normalized);
+  }
+  return origins;
+}
+
+function normalizeCorsOrigin(candidate: string): string | undefined {
+  try {
+    const url = new URL(candidate);
+    const isHttp = url.protocol === "http:" || url.protocol === "https:";
+    const hasOnlyTrailingSlash = url.pathname === "" || url.pathname === "/";
+    if (
+      !isHttp ||
+      url.username ||
+      url.password ||
+      !hasOnlyTrailingSlash ||
+      url.search ||
+      url.hash
+    ) {
+      return undefined;
+    }
+    return url.origin;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Adds the minimal hardening headers used by the original app. */

@@ -57,6 +57,18 @@ agentpay-backend/
     └── ci.yml            # CI: build, test
 ```
 
+## CORS configuration
+
+Set `CORS_ALLOWED_ORIGINS` to a comma-separated list of explicit `http` or `https` origins:
+
+```bash
+CORS_ALLOWED_ORIGINS=https://app.example.com,https://console.example.com
+```
+
+Entries are trimmed and normalized to URL origins. For example, `https://Example.com/` is treated as `https://example.com`. Entries with paths, credentials, queries, fragments, non-HTTP schemes, or invalid URLs are skipped with a startup warning.
+
+The wildcard value `*` is rejected with a startup error. AgentPay does not emit `Access-Control-Allow-Credentials`, and the allowlist intentionally avoids wildcard behavior so credentialed CORS cannot be enabled later in an unsafe configuration.
+
 ## Commands
 
 | Command          | Description                                 |
