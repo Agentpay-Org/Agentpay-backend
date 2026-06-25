@@ -20,9 +20,9 @@ import type { AgentPayRequest } from "../types.js";
  */
 export function installPreRouteMiddleware(app: Application): void {
   app.use(createCorsMiddleware());
+  app.use(requestIdMiddleware);
   app.use(express.json({ limit: "100kb" }));
   app.use(securityHeadersMiddleware);
-  app.use(requestIdMiddleware);
 }
 
 /**

@@ -6,6 +6,22 @@ import {
 } from "express";
 import { getRequestId } from "../types.js";
 
+type BodyParserError = Error & {
+  type?: string;
+  status?: number;
+  statusCode?: number;
+};
+
+function isBodyParserError(err: unknown): err is BodyParserError {
+  if (!(err instanceof Error)) return false;
+  const candidate = err as BodyParserError;
+  return (
+    candidate.type === "entity.parse.failed" ||
+    (err instanceof SyntaxError &&
+      (candidate.status === 400 || candidate.statusCode === 400))
+  );
+}
+
 /**
  * Installs the terminal 404 and error handlers after all route modules.
  */
@@ -18,7 +34,20 @@ export function installErrorHandlers(app: Application): void {
     });
   });
 
+  /**
+   * Converts body-parser failures into stable client errors before falling back
+   * to the generic server-error envelope.
+   */
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+    if (isBodyParserError(err)) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: "Malformed JSON request body",
+        requestId: getRequestId(req),
+      });
+      return;
+    }
+
     if (
       err &&
       typeof err === "object" &&

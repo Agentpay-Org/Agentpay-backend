@@ -68,6 +68,12 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
+## Error responses
+
+Malformed JSON request bodies return `400 invalid_request` with a stable
+`Malformed JSON request body` message and the request id. Parser internals,
+request body snippets, and stack traces are not included in the response.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
