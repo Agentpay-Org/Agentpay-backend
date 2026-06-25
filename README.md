@@ -68,6 +68,10 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
+## Error response policy
+
+Unexpected `500 internal_error` responses return the fixed message `Unexpected server error` while preserving `error`, `method`, `path`, and `requestId` for clients. The raw thrown error message and stack stay in the server log with the same `requestId` for operator debugging. Safe caller-actionable errors such as validation `400` responses and oversized payload `413` responses continue to return specific messages.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
