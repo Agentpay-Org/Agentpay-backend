@@ -1,0 +1,40 @@
+version: 2
+
+updates:
+  # Keep npm dependencies patched
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    # Group all non-breaking updates into a single PR to reduce noise.
+    # Breaking (major) bumps are left as individual PRs so they get explicit review.
+    groups:
+      non-major:
+        update-types:
+          - "minor"
+          - "patch"
+    # Limit open PRs to avoid queue buildup
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "security"
+
+  # Keep GitHub Actions pinned to current versions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    groups:
+      actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
