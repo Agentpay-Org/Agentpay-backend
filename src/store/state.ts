@@ -12,13 +12,16 @@ export type WebhookRecord = { url: string; events: string[]; createdAt: number }
 /** Mirrors the on-chain pause flag for write-gated endpoints. */
 export const pauseState = { paused: false };
 
-/** Runtime-tunable in-memory configuration returned by /api/v1/config. */
-export const config: Record<string, number> = {
+/** Default process-local runtime config values. */
+export const DEFAULT_CONFIG: Record<string, number> = {
   rateLimitPerWindow: 60,
   rateLimitWindowMs: 60_000,
   bulkMaxItems: 100,
   eventLogCap: 10_000,
 };
+
+/** Runtime-tunable in-memory configuration returned by /api/v1/config. */
+export const config: Record<string, number> = { ...DEFAULT_CONFIG };
 
 /** Opaque API keys keyed by full secret token. */
 export const apiKeyStore = new Map<string, ApiKeyRecord>();

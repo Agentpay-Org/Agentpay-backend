@@ -231,6 +231,54 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+## Admin reset
+
+`POST /api/v1/admin/reset` is a destructive maintenance endpoint for local
+tests and demos. It clears the process-local usage counters, service registry,
+service metadata, disabled-service flags, API keys, webhooks, audit events, rate
+buckets, pause flag, and runtime config.
+
+The endpoint is disabled by default. It only responds when
+`ALLOW_ADMIN_RESET` is explicitly set to `true`, `1`, `yes`, or `on`.
+
+Do not enable `ALLOW_ADMIN_RESET` in production unless a separate admin-auth
+layer protects this route. When disabled, the endpoint returns `404 not_found`.
+When enabled, it emits an `admin.reset` audit event before clearing state and
+returns a summary:
+
+```json
+{
+  "reset": true,
+  "cleared": {
+    "usage": 1,
+    "services": 1,
+    "servicesMetadata": 1,
+    "servicesDisabled": 1,
+    "apiKeys": 1,
+    "webhooks": 1,
+    "eventLog": 1,
+    "rateBuckets": 1,
+    "paused": true,
+    "config": {
+      "rateLimitPerWindow": 60,
+      "rateLimitWindowMs": 60000,
+      "bulkMaxItems": 100,
+      "eventLogCap": 10000
+    }
+  },
+  "paused": false,
+  "config": {
+    "rateLimitPerWindow": 60,
+    "rateLimitWindowMs": 60000,
+    "bulkMaxItems": 100,
+    "eventLogCap": 10000
+  },
+  "auditEvent": {
+    "type": "admin.reset"
+  }
+}
+```
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
