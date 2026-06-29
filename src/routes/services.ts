@@ -8,6 +8,30 @@ import {
 } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
+type ServiceReadShape = {
+  serviceId: string;
+  priceStroops: number;
+  disabled: boolean;
+  description?: string;
+  owner?: string;
+};
+
+/**
+ * Builds the public read shape for service detail and list endpoints.
+ */
+function serviceReadShape(
+  serviceId: string,
+  meta: { priceStroops: number }
+): ServiceReadShape {
+  const metadata = servicesMetadata.get(serviceId);
+  return {
+    serviceId,
+    priceStroops: meta.priceStroops,
+    disabled: servicesDisabled.has(serviceId),
+    ...(metadata ?? {}),
+  };
+}
+
 /**
  * Builds service registry and service rollup routes.
  */
@@ -124,6 +148,7 @@ export function createServicesRouter(): Router {
     res.json({ serviceId, items });
   });
 
+  /** Reads one service with its disabled state and optional metadata. */
   router.get("/api/v1/services/:serviceId", (req: Request, res: Response) => {
     const { serviceId } = req.params;
     const meta = servicesStore.get(serviceId);
@@ -135,7 +160,7 @@ export function createServicesRouter(): Router {
       });
       return;
     }
-    res.json({ serviceId, ...meta });
+    res.json(serviceReadShape(serviceId, meta));
   });
 
   router.put("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
@@ -256,6 +281,7 @@ export function createServicesRouter(): Router {
     res.status(204).send();
   });
 
+  /** Lists services with their disabled state and optional metadata. */
   router.get("/api/v1/services", (req: Request, res: Response) => {
     const prefix = typeof req.query.prefix === "string" ? req.query.prefix : "";
     const q = typeof req.query.q === "string" ? req.query.q.toLowerCase() : "";
@@ -263,11 +289,11 @@ export function createServicesRouter(): Router {
       1000,
       Math.max(1, Number((req.query.limit as string) ?? 200))
     );
-    const services: { serviceId: string; priceStroops: number }[] = [];
+    const services: ServiceReadShape[] = [];
     for (const [serviceId, meta] of servicesStore.entries()) {
       if (prefix && !serviceId.startsWith(prefix)) continue;
       if (q && !serviceId.toLowerCase().includes(q)) continue;
-      services.push({ serviceId, ...meta });
+      services.push(serviceReadShape(serviceId, meta));
       if (services.length >= limit) break;
     }
     const body = JSON.stringify({ services });

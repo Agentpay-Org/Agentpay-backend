@@ -113,6 +113,40 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+   Service read endpoints return the registration fields plus the current
+   `disabled` flag and any configured metadata. Services without metadata omit
+   `description` and `owner`.
+
+   ```bash
+   curl -sS "$BASE_URL/api/v1/services/embedding-v1"
+   ```
+
+   Expected status: `200 OK`
+
+   ```json
+   {
+     "serviceId": "embedding-v1",
+     "priceStroops": 25,
+     "disabled": false
+   }
+   ```
+
+   Listing services uses the same response shape for each item:
+
+   ```json
+   {
+     "services": [
+       {
+         "serviceId": "embedding-v1",
+         "priceStroops": 25,
+         "disabled": false,
+         "description": "Embedding service",
+         "owner": "platform"
+       }
+     ]
+   }
+   ```
+
 2. Record usage for an agent.
 
    ```bash
