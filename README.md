@@ -68,17 +68,29 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
+## Billing total response
+
+`GET /api/v1/billing/total` returns a protocol-wide aggregate snapshot:
+
+| Field              | Meaning                                                                                                   |
+| ------------------ | --------------------------------------------------------------------------------------------------------- |
+| `totalStroops`     | Total priced usage in stroops. This preserves the existing meaning and includes priced disabled services. |
+| `disabledStroops`  | The subset of `totalStroops` coming from services currently marked disabled.                              |
+| `unpricedRequests` | Usage request count for service IDs that no longer have a registered price record.                        |
+
+The endpoint intentionally stays aggregate-only and does not expose per-agent usage.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
 
-| Step | Command | Notes |
-|------|---------|-------|
-| Install | `npm ci` | Clean, reproducible install |
-| Audit | `npm audit --audit-level=high` | Fails on high or critical advisories |
-| Lint | `npm run lint` | ESLint over TS source and tests |
-| Build | `npm run build` | TypeScript compile |
-| Test | `npm test` | Node built-in test runner |
+| Step    | Command                        | Notes                                |
+| ------- | ------------------------------ | ------------------------------------ |
+| Install | `npm ci`                       | Clean, reproducible install          |
+| Audit   | `npm audit --audit-level=high` | Fails on high or critical advisories |
+| Lint    | `npm run lint`                 | ESLint over TS source and tests      |
+| Build   | `npm run build`                | TypeScript compile                   |
+| Test    | `npm test`                     | Node built-in test runner            |
 
 Node.js is pinned to **20.x LTS** in CI, which satisfies the `engines >= 18.18` requirement declared in `package.json`.
 
@@ -101,10 +113,10 @@ Low/moderate advisories are surfaced in the output but do not block the build. T
 
 Dependabot is configured in `.github/dependabot.yml` and runs every **Monday at 06:00 UTC** for both ecosystems:
 
-| Ecosystem | Grouping | Separate PRs for |
-|-----------|----------|-----------------|
-| `npm` | Minor + patch bundled into one PR | Major version bumps |
-| `github-actions` | All action updates in one PR | — |
+| Ecosystem        | Grouping                          | Separate PRs for    |
+| ---------------- | --------------------------------- | ------------------- |
+| `npm`            | Minor + patch bundled into one PR | Major version bumps |
+| `github-actions` | All action updates in one PR      | —                   |
 
 - PRs are labelled `dependencies` + `security` (npm) or `ci` (actions).
 - Major version bumps get individual PRs so breaking changes receive explicit review.

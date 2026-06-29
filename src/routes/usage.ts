@@ -15,6 +15,12 @@ type BulkUsageResult = {
   error?: string;
 };
 
+type BillingTotalBreakdown = {
+  totalStroops: number;
+  disabledStroops: number;
+  unpricedRequests: number;
+};
+
 /**
  * Builds usage, billing, settlement, and agent rollup routes.
  */
@@ -142,14 +148,34 @@ export function createUsageRouter(): Router {
     res.json({ exportedAt: Date.now(), items });
   });
 
+  /**
+   * Returns one aggregate billing snapshot without exposing per-agent usage.
+   * totalStroops keeps the historic meaning: all priced usage, including
+   * disabled services. The added fields expose hidden disabled and unpriced
+   * buckets without silently folding them into zero-priced usage.
+   */
   router.get("/api/v1/billing/total", (_req, res: Response) => {
-    let totalStroops = 0;
+    const breakdown: BillingTotalBreakdown = {
+      totalStroops: 0,
+      disabledStroops: 0,
+      unpricedRequests: 0,
+    };
+
     for (const [key, requests] of usageStore.entries()) {
       const [, serviceId] = key.split("::");
-      const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
-      totalStroops += requests * price;
+      const service = servicesStore.get(serviceId);
+      if (!service) {
+        breakdown.unpricedRequests += requests;
+        continue;
+      }
+
+      const billedStroops = requests * service.priceStroops;
+      breakdown.totalStroops += billedStroops;
+      if (servicesDisabled.has(serviceId)) {
+        breakdown.disabledStroops += billedStroops;
+      }
     }
-    res.json({ totalStroops });
+    res.json(breakdown);
   });
 
   router.get("/api/v1/billing/:agent/:serviceId", (req: Request, res: Response) => {
