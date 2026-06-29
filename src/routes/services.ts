@@ -14,6 +14,7 @@ import { getRequestId } from "../types.js";
 export function createServicesRouter(): Router {
   const router = Router();
 
+  /** Registers up to 50 services while rejecting duplicate ids in the same batch. */
   router.post("/api/v1/services/bulk", (req: Request, res: Response) => {
     const requestId = getRequestId(req);
     const { items } = req.body ?? {};
@@ -25,6 +26,8 @@ export function createServicesRouter(): Router {
       });
       return;
     }
+    const serviceIdsAtBatchStart = new Set(servicesStore.keys());
+    const seenServiceIds = new Set<string>();
     const results = items.map(
       (it: { serviceId?: unknown; priceStroops?: unknown }, i: number) => {
         const { serviceId, priceStroops } = it ?? {};
@@ -38,7 +41,11 @@ export function createServicesRouter(): Router {
         ) {
           return { index: i, ok: false, error: "invalid_item" };
         }
-        const isNew = !servicesStore.has(serviceId);
+        if (seenServiceIds.has(serviceId)) {
+          return { index: i, ok: false, serviceId, error: "duplicate_in_batch" };
+        }
+        seenServiceIds.add(serviceId);
+        const isNew = !serviceIdsAtBatchStart.has(serviceId);
         servicesStore.set(serviceId, { priceStroops });
         return { index: i, ok: true, serviceId, priceStroops, created: isNew };
       }
