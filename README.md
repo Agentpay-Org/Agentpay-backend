@@ -113,39 +113,11 @@ BASE_URL=http://localhost:3001
    }
    ```
 
-   Service read endpoints return the registration fields plus the current
-   `disabled` flag and any configured metadata. Services without metadata omit
-   `description` and `owner`.
-
-   ```bash
-   curl -sS "$BASE_URL/api/v1/services/embedding-v1"
-   ```
-
-   Expected status: `200 OK`
-
-   ```json
-   {
-     "serviceId": "embedding-v1",
-     "priceStroops": 25,
-     "disabled": false
-   }
-   ```
-
-   Listing services uses the same response shape for each item:
-
-   ```json
-   {
-     "services": [
-       {
-         "serviceId": "embedding-v1",
-         "priceStroops": 25,
-         "disabled": false,
-         "description": "Embedding service",
-         "owner": "platform"
-       }
-     ]
-   }
-   ```
+   Bulk registration is available at `POST /api/v1/services/bulk` with an
+   `items` array of 1-50 services. The endpoint keeps its partial-success
+   response contract: valid unique items are applied, invalid items report
+   `invalid_item`, and later occurrences of a duplicate `serviceId` in the same
+   batch report `duplicate_in_batch` without overwriting the first item.
 
 2. Record usage for an agent.
 
