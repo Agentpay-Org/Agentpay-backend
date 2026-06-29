@@ -68,17 +68,11 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
-## Billing total response
+## Documentation
 
-`GET /api/v1/billing/total` returns a protocol-wide aggregate snapshot:
-
-| Field              | Meaning                                                                                                   |
-| ------------------ | --------------------------------------------------------------------------------------------------------- |
-| `totalStroops`     | Total priced usage in stroops. This preserves the existing meaning and includes priced disabled services. |
-| `disabledStroops`  | The subset of `totalStroops` coming from services currently marked disabled.                              |
-| `unpricedRequests` | Usage request count for service IDs that no longer have a registered price record.                        |
-
-The endpoint intentionally stays aggregate-only and does not expose per-agent usage.
+- [Billing units and settlement semantics](docs/billing-units.md) explains
+  stroops, `priceStroops`, `billedStroops`, `/api/v1/billing/*`, and why
+  `POST /api/v1/settle` drains backend counters without moving funds.
 
 ## CI/CD
 
