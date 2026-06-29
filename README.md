@@ -68,17 +68,23 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
+## Documentation
+
+- [Billing units and settlement semantics](docs/billing-units.md) explains
+  stroops, `priceStroops`, `billedStroops`, `/api/v1/billing/*`, and why
+  `POST /api/v1/settle` drains backend counters without moving funds.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
 
-| Step | Command | Notes |
-|------|---------|-------|
-| Install | `npm ci` | Clean, reproducible install |
-| Audit | `npm audit --audit-level=high` | Fails on high or critical advisories |
-| Lint | `npm run lint` | ESLint over TS source and tests |
-| Build | `npm run build` | TypeScript compile |
-| Test | `npm test` | Node built-in test runner |
+| Step    | Command                        | Notes                                |
+| ------- | ------------------------------ | ------------------------------------ |
+| Install | `npm ci`                       | Clean, reproducible install          |
+| Audit   | `npm audit --audit-level=high` | Fails on high or critical advisories |
+| Lint    | `npm run lint`                 | ESLint over TS source and tests      |
+| Build   | `npm run build`                | TypeScript compile                   |
+| Test    | `npm test`                     | Node built-in test runner            |
 
 Node.js is pinned to **20.x LTS** in CI, which satisfies the `engines >= 18.18` requirement declared in `package.json`.
 
@@ -101,10 +107,10 @@ Low/moderate advisories are surfaced in the output but do not block the build. T
 
 Dependabot is configured in `.github/dependabot.yml` and runs every **Monday at 06:00 UTC** for both ecosystems:
 
-| Ecosystem | Grouping | Separate PRs for |
-|-----------|----------|-----------------|
-| `npm` | Minor + patch bundled into one PR | Major version bumps |
-| `github-actions` | All action updates in one PR | — |
+| Ecosystem        | Grouping                          | Separate PRs for    |
+| ---------------- | --------------------------------- | ------------------- |
+| `npm`            | Minor + patch bundled into one PR | Major version bumps |
+| `github-actions` | All action updates in one PR      | —                   |
 
 - PRs are labelled `dependencies` + `security` (npm) or `ci` (actions).
 - Major version bumps get individual PRs so breaking changes receive explicit review.
