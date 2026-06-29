@@ -74,6 +74,157 @@ agentpay-backend/
   stroops, `priceStroops`, `billedStroops`, `/api/v1/billing/*`, and why
   `POST /api/v1/settle` drains backend counters without moving funds.
 
+## Quickstart
+
+Start a local backend on `http://localhost:3001` with the checked-in
+dependencies:
+
+```bash
+npm run build
+npm start
+```
+
+The API is currently open for local development and demos. You do not need an
+API key for the metering flow until API-key enforcement lands. Add your own
+`X-Request-Id` header when you want to correlate client logs with backend
+responses. The backend echoes the value on success and structured errors.
+
+Set a shell variable for the local base URL:
+
+```bash
+BASE_URL=http://localhost:3001
+```
+
+1. Register a billable service.
+
+   ```bash
+   curl -sS -X POST "$BASE_URL/api/v1/services" \
+     -H "Content-Type: application/json" \
+     -H "X-Request-Id: quickstart-register" \
+     -d '{"serviceId":"embedding-v1","priceStroops":25}'
+   ```
+
+   Expected status: `201 Created`
+
+   ```json
+   {
+     "serviceId": "embedding-v1",
+     "priceStroops": 25
+   }
+   ```
+
+2. Record usage for an agent.
+
+   ```bash
+   curl -sS -X POST "$BASE_URL/api/v1/usage" \
+     -H "Content-Type: application/json" \
+     -H "X-Request-Id: quickstart-usage-1" \
+     -d '{"agent":"agent-alpha","serviceId":"embedding-v1","requests":3}'
+   ```
+
+   Expected status: `201 Created`
+
+   ```json
+   {
+     "agent": "agent-alpha",
+     "serviceId": "embedding-v1",
+     "total": 3
+   }
+   ```
+
+3. Record more usage for the same agent and service.
+
+   ```bash
+   curl -sS -X POST "$BASE_URL/api/v1/usage" \
+     -H "Content-Type: application/json" \
+     -H "X-Request-Id: quickstart-usage-2" \
+     -d '{"agent":"agent-alpha","serviceId":"embedding-v1","requests":7}'
+   ```
+
+   Expected status: `201 Created`
+
+   ```json
+   {
+     "agent": "agent-alpha",
+     "serviceId": "embedding-v1",
+     "total": 10
+   }
+   ```
+
+4. Read the current accumulator.
+
+   ```bash
+   curl -sS "$BASE_URL/api/v1/usage/agent-alpha/embedding-v1" \
+     -H "X-Request-Id: quickstart-read"
+   ```
+
+   Expected status: `200 OK`
+
+   ```json
+   {
+     "agent": "agent-alpha",
+     "serviceId": "embedding-v1",
+     "total": 10
+   }
+   ```
+
+5. Quote the current bill.
+
+   ```bash
+   curl -sS "$BASE_URL/api/v1/billing/agent-alpha/embedding-v1" \
+     -H "X-Request-Id: quickstart-quote"
+   ```
+
+   Expected status: `200 OK`
+
+   ```json
+   {
+     "agent": "agent-alpha",
+     "serviceId": "embedding-v1",
+     "requests": 10,
+     "priceStroops": 25,
+     "billedStroops": 250
+   }
+   ```
+
+6. Settle the bill and drain the accumulator.
+
+   ```bash
+   curl -sS -X POST "$BASE_URL/api/v1/settle" \
+     -H "Content-Type: application/json" \
+     -H "X-Request-Id: quickstart-settle" \
+     -d '{"agent":"agent-alpha","serviceId":"embedding-v1"}'
+   ```
+
+   Expected status: `200 OK`
+
+   ```json
+   {
+     "agent": "agent-alpha",
+     "serviceId": "embedding-v1",
+     "requests": 10,
+     "priceStroops": 25,
+     "billedStroops": 250
+   }
+   ```
+
+7. Confirm the accumulator is now zero.
+
+   ```bash
+   curl -sS "$BASE_URL/api/v1/usage/agent-alpha/embedding-v1" \
+     -H "X-Request-Id: quickstart-drained"
+   ```
+
+   Expected status: `200 OK`
+
+   ```json
+   {
+     "agent": "agent-alpha",
+     "serviceId": "embedding-v1",
+     "total": 0
+   }
+   ```
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
