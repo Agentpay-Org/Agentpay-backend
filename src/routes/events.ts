@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { EVENT_LOG_CAP, eventLog } from "../events.js";
+import { eventLog, getEventLogCap } from "../events.js";
 
 /**
  * Builds read-only audit-event routes.
@@ -17,7 +17,7 @@ export function createEventsRouter(): Router {
     const since = Number((req.query.since as string) ?? 0);
     const type = typeof req.query.type === "string" ? req.query.type : undefined;
     const limit = Math.min(
-      EVENT_LOG_CAP,
+      getEventLogCap(),
       Math.max(1, Number((req.query.limit as string) ?? 100))
     );
     const items = eventLog
