@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
+import { parsePagination } from "../pagination.js";
 import { apiKeyStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
@@ -30,13 +31,21 @@ export function createApiKeysRouter(): Router {
     res.status(204).send();
   });
 
-  router.get("/api/v1/api-keys", (_req, res: Response) => {
-    const items = Array.from(apiKeyStore.entries()).map(([key, meta]) => ({
-      prefix: key.slice(0, 8),
-      label: meta.label,
-      createdAt: meta.createdAt,
-    }));
-    res.json({ items });
+  /** Lists API keys with bounded offset pagination without exposing full keys. */
+  router.get("/api/v1/api-keys", (req: Request, res: Response) => {
+    const { limit, offset } = parsePagination(req.query);
+    const allItems = Array.from(apiKeyStore.entries())
+      .sort(
+        ([keyA, metaA], [keyB, metaB]) =>
+          metaA.createdAt - metaB.createdAt || keyA.localeCompare(keyB)
+      )
+      .map(([key, meta]) => ({
+        prefix: key.slice(0, 8),
+        label: meta.label,
+        createdAt: meta.createdAt,
+      }));
+    const items = allItems.slice(offset, offset + limit);
+    res.json({ items, total: allItems.length });
   });
 
   router.post("/api/v1/api-keys", (req: Request, res: Response) => {

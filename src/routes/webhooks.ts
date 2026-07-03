@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
+import { parsePagination } from "../pagination.js";
 import { webhookStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
@@ -24,12 +25,20 @@ export function createWebhooksRouter(): Router {
     res.status(204).send();
   });
 
-  router.get("/api/v1/webhooks", (_req, res: Response) => {
-    const items = Array.from(webhookStore.entries()).map(([id, meta]) => ({
-      id,
-      ...meta,
-    }));
-    res.json({ items });
+  /** Lists registered webhooks with bounded offset pagination. */
+  router.get("/api/v1/webhooks", (req: Request, res: Response) => {
+    const { limit, offset } = parsePagination(req.query);
+    const allItems = Array.from(webhookStore.entries())
+      .sort(
+        ([idA, metaA], [idB, metaB]) =>
+          metaA.createdAt - metaB.createdAt || idA.localeCompare(idB)
+      )
+      .map(([id, meta]) => ({
+        id,
+        ...meta,
+      }));
+    const items = allItems.slice(offset, offset + limit);
+    res.json({ items, total: allItems.length });
   });
 
   router.post("/api/v1/webhooks/:id/test", (req: Request, res: Response) => {

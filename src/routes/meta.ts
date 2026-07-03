@@ -89,12 +89,12 @@ export function createMetaRouter(): Router {
         "/api/v1/billing/{agent}/{serviceId}": { get: { summary: "Quote bill" } },
         "/api/v1/settle": { post: { summary: "Drain & quote bill" } },
         "/api/v1/api-keys": {
-          get: { summary: "List api keys" },
+          get: { summary: "Paginated api-key list (?limit=&offset=)" },
           post: { summary: "Create api key" },
         },
         "/api/v1/api-keys/{prefix}": { delete: { summary: "Revoke by prefix" } },
         "/api/v1/webhooks": {
-          get: { summary: "List webhooks" },
+          get: { summary: "Paginated webhook list (?limit=&offset=)" },
           post: { summary: "Register webhook" },
         },
         "/api/v1/webhooks/{id}": { delete: { summary: "Unregister webhook" } },

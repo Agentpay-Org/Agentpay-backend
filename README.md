@@ -231,6 +231,25 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+### Paginated list endpoints
+
+`GET /api/v1/api-keys` and `GET /api/v1/webhooks` accept bounded
+`limit`/`offset` query parameters for deterministic polling and admin UIs.
+`limit` defaults to `200` and is capped at `1000`; `offset` defaults to `0`.
+
+Both endpoints return:
+
+```json
+{
+  "items": [],
+  "total": 0
+}
+```
+
+API-key list items keep the existing prefix-only security shape and never
+include the full key secret. Webhook list items keep the existing webhook record
+shape.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
