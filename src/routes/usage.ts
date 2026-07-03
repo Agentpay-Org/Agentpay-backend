@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
 import {
+  settlementCounters,
   servicesDisabled,
   servicesStore,
   usageKey,
@@ -20,6 +21,15 @@ type BillingTotalBreakdown = {
   disabledStroops: number;
   unpricedRequests: number;
 };
+
+/** Records cumulative settlement throughput without per-agent labels. */
+function recordSettlementCounters(billedStroops: number) {
+  settlementCounters.settledStroopsTotal += BigInt(billedStroops);
+  settlementCounters.settlementsTotal = Math.min(
+    Number.MAX_SAFE_INTEGER,
+    settlementCounters.settlementsTotal + 1
+  );
+}
 
 /**
  * Builds usage, billing, settlement, and agent rollup routes.
@@ -207,6 +217,7 @@ export function createUsageRouter(): Router {
     const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
     const billedStroops = requests * price;
     usageStore.set(key, 0);
+    recordSettlementCounters(billedStroops);
     recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
     res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
   });

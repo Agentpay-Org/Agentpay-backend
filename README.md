@@ -231,6 +231,12 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+   Settlement observability is cumulative: `/api/v1/metrics` exposes
+   `agentpay_settled_stroops_total` and `agentpay_settlements_total`, and
+   `/api/v1/stats` includes `settledStroopsTotal` plus `settlementsTotal`.
+   `settledStroopsTotal` is serialized as a decimal string so large stroop
+   totals do not lose precision in JSON clients.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:

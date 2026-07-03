@@ -1,5 +1,11 @@
 import { Router, type Response } from "express";
-import { apiKeyStore, pauseState, servicesStore, usageStore } from "../store/state.js";
+import {
+  apiKeyStore,
+  pauseState,
+  servicesStore,
+  settlementCounters,
+  usageStore,
+} from "../store/state.js";
 
 /**
  * Builds operational metrics and aggregate stats routes.
@@ -20,6 +26,12 @@ export function createMetricsRouter(): Router {
       "# HELP agentpay_usage_requests_total Outstanding (unsettled) request counters.",
       "# TYPE agentpay_usage_requests_total gauge",
       `agentpay_usage_requests_total ${totalRequests}`,
+      "# HELP agentpay_settled_stroops_total Lifetime settled value in stroops.",
+      "# TYPE agentpay_settled_stroops_total counter",
+      `agentpay_settled_stroops_total ${settlementCounters.settledStroopsTotal.toString()}`,
+      "# HELP agentpay_settlements_total Lifetime settlement operations.",
+      "# TYPE agentpay_settlements_total counter",
+      `agentpay_settlements_total ${settlementCounters.settlementsTotal}`,
       "# HELP agentpay_paused 1 if the backend is paused, 0 otherwise.",
       "# TYPE agentpay_paused gauge",
       `agentpay_paused ${pauseState.paused ? 1 : 0}`,
@@ -40,6 +52,8 @@ export function createMetricsRouter(): Router {
       totalApiKeys: apiKeyStore.size,
       totalRequests,
       uniqueAgents: agents.size,
+      settledStroopsTotal: settlementCounters.settledStroopsTotal.toString(),
+      settlementsTotal: settlementCounters.settlementsTotal,
       paused: pauseState.paused,
     });
   });
