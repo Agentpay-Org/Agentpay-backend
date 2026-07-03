@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
+import { MAX_REQUESTS_PER_CALL, isSafeCount } from "../numericLimits.js";
 import {
   servicesDisabled,
   servicesStore,
@@ -51,10 +52,10 @@ export function createUsageRouter(): Router {
       });
       return;
     }
-    if (typeof requests !== "number" || !Number.isInteger(requests) || requests <= 0) {
+    if (!isSafeCount(requests)) {
       res.status(400).json({
         error: "invalid_request",
-        message: "requests must be a positive integer",
+        message: `requests must be a positive integer up to ${MAX_REQUESTS_PER_CALL}`,
         requestId,
       });
       return;
@@ -95,9 +96,7 @@ export function createUsageRouter(): Router {
       if (
         typeof agent !== "string" ||
         typeof serviceId !== "string" ||
-        typeof requests !== "number" ||
-        !Number.isInteger(requests) ||
-        requests <= 0
+        !isSafeCount(requests)
       ) {
         results.push({ index: i, ok: false, error: "invalid_item" });
         continue;
