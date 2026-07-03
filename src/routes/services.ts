@@ -16,6 +16,11 @@ type ServiceReadShape = {
   owner?: string;
 };
 
+type ServiceAgentUsage = {
+  total: number;
+  items: { agent: string; total: number }[];
+};
+
 /**
  * Builds the public read shape for service detail and list endpoints.
  */
@@ -29,6 +34,30 @@ function serviceReadShape(
     priceStroops: meta.priceStroops,
     disabled: servicesDisabled.has(serviceId),
     ...(metadata ?? {}),
+  };
+}
+
+/**
+ * Builds a per-service usage rollup. `total` preserves all outstanding usage
+ * math, while `items` includes only agents with non-zero outstanding usage.
+ */
+function serviceAgentUsage(serviceId: string): ServiceAgentUsage {
+  const suffix = `::${serviceId}`;
+  let total = 0;
+  const agentTotals = new Map<string, number>();
+  for (const [key, value] of usageStore.entries()) {
+    if (!key.endsWith(suffix)) continue;
+    total += value;
+    if (value === 0) continue;
+    const agent = key.slice(0, key.length - suffix.length);
+    agentTotals.set(agent, (agentTotals.get(agent) ?? 0) + value);
+  }
+  return {
+    total,
+    items: Array.from(agentTotals, ([agent, agentTotal]) => ({
+      agent,
+      total: agentTotal,
+    })),
   };
 }
 
@@ -111,16 +140,8 @@ export function createServicesRouter(): Router {
 
   router.get("/api/v1/services/:serviceId/usage", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const suffix = `::${serviceId}`;
-    let total = 0;
-    let agents = 0;
-    for (const [key, value] of usageStore.entries()) {
-      if (key.endsWith(suffix)) {
-        total += value;
-        agents++;
-      }
-    }
-    res.json({ serviceId, total, agents });
+    const rollup = serviceAgentUsage(serviceId);
+    res.json({ serviceId, total: rollup.total, agents: rollup.items.length });
   });
 
   router.get(
@@ -131,13 +152,7 @@ export function createServicesRouter(): Router {
         100,
         Math.max(1, Number((req.query.limit as string) ?? 10))
       );
-      const suffix = `::${serviceId}`;
-      const items: { agent: string; total: number }[] = [];
-      for (const [key, total] of usageStore.entries()) {
-        if (key.endsWith(suffix)) {
-          items.push({ agent: key.slice(0, key.length - suffix.length), total });
-        }
-      }
+      const { items } = serviceAgentUsage(serviceId);
       items.sort((a, b) => b.total - a.total);
       res.json({ serviceId, items: items.slice(0, limit) });
     }
@@ -145,13 +160,7 @@ export function createServicesRouter(): Router {
 
   router.get("/api/v1/services/:serviceId/agents", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const suffix = `::${serviceId}`;
-    const items: { agent: string; total: number }[] = [];
-    for (const [key, total] of usageStore.entries()) {
-      if (key.endsWith(suffix)) {
-        items.push({ agent: key.slice(0, key.length - suffix.length), total });
-      }
-    }
+    const { items } = serviceAgentUsage(serviceId);
     res.json({ serviceId, items });
   });
 
