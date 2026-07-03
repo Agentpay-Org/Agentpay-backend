@@ -231,6 +231,17 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+### Conditional read polling
+
+Polling-friendly read endpoints emit weak `ETag` validators. Clients can send
+the last value back with `If-None-Match`; unchanged responses return
+`304 Not Modified` with an empty body. This is supported for
+`GET /api/v1/services`, `GET /api/v1/events`, and `GET /api/v1/stats`.
+
+`GET /api/v1/events` scopes its validator to the effective `since`, `type`, and
+`limit` query values so different filters never share a validator just because
+their current response bodies are both empty.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:

@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { EVENT_LOG_CAP, eventLog } from "../events.js";
+import { etagFor } from "../httpCache.js";
 
 /**
  * Builds read-only audit-event routes.
@@ -23,7 +24,18 @@ export function createEventsRouter(): Router {
     const items = eventLog
       .filter((e) => e.ts >= since && (type === undefined || e.type === type))
       .slice(-limit);
-    res.json({ items });
+    const bodyShape = { items };
+    const body = JSON.stringify(bodyShape);
+    const etag = etagFor({
+      body: bodyShape,
+      query: { limit, since, type: type ?? null },
+    });
+    if (req.header("if-none-match") === etag) {
+      res.status(304).end();
+      return;
+    }
+    res.setHeader("ETag", etag);
+    res.type("application/json").send(body);
   });
 
   return router;

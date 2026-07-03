@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
+import { etagFor } from "../httpCache.js";
 import {
   servicesDisabled,
   servicesMetadata,
@@ -304,7 +304,7 @@ export function createServicesRouter(): Router {
       if (services.length >= limit) break;
     }
     const body = JSON.stringify({ services });
-    const etag = `W/"${createHash("sha1").update(body).digest("base64").slice(0, 16)}"`;
+    const etag = etagFor(body);
     if (req.header("if-none-match") === etag) {
       res.status(304).end();
       return;
