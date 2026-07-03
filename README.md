@@ -231,6 +231,19 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+## Bulk usage validation
+
+`POST /api/v1/usage/bulk` uses the same per-item validation as
+`POST /api/v1/usage`: `agent` must be non-empty and at most 256 characters,
+`serviceId` must be non-empty and at most 128 characters, and `requests` must
+be a positive integer. Invalid rows are reported as `{ ok: false, error:
+"invalid_item" }` without blocking valid rows in the same batch.
+
+Bulk usage also honors disabled services. Rows that target a disabled
+`serviceId` return `{ ok: false, error: "service_disabled" }` and do not update
+the usage accumulator, while other valid rows keep the partial-success
+contract.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:

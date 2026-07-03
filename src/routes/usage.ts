@@ -15,11 +15,50 @@ type BulkUsageResult = {
   error?: string;
 };
 
+type UsageItemValidation =
+  | { ok: true; agent: string; serviceId: string; requests: number }
+  | { ok: false; message: string };
+
 type BillingTotalBreakdown = {
   totalStroops: number;
   disabledStroops: number;
   unpricedRequests: number;
 };
+
+/**
+ * Validates one usage write payload so single and bulk ingestion stay aligned.
+ */
+export function validateUsageItem(input: unknown): UsageItemValidation {
+  const { agent, serviceId, requests } =
+    typeof input === "object" && input !== null
+      ? (input as { agent?: unknown; serviceId?: unknown; requests?: unknown })
+      : {};
+
+  if (typeof agent !== "string" || agent.length === 0 || agent.length > 256) {
+    return {
+      ok: false,
+      message: "agent must be a non-empty string up to 256 chars",
+    };
+  }
+  if (
+    typeof serviceId !== "string" ||
+    serviceId.length === 0 ||
+    serviceId.length > 128
+  ) {
+    return {
+      ok: false,
+      message: "serviceId must be a non-empty string up to 128 chars",
+    };
+  }
+  if (typeof requests !== "number" || !Number.isInteger(requests) || requests <= 0) {
+    return {
+      ok: false,
+      message: "requests must be a positive integer",
+    };
+  }
+
+  return { ok: true, agent, serviceId, requests };
+}
 
 /**
  * Builds usage, billing, settlement, and agent rollup routes.
@@ -28,38 +67,19 @@ export function createUsageRouter(): Router {
   const router = Router();
 
   router.post("/api/v1/usage", (req: Request, res: Response) => {
-    const { agent, serviceId, requests } = req.body ?? {};
     const requestId = getRequestId(req);
+    const validation = validateUsageItem(req.body ?? {});
 
-    if (typeof agent !== "string" || agent.length === 0 || agent.length > 256) {
+    if (!validation.ok) {
       res.status(400).json({
         error: "invalid_request",
-        message: "agent must be a non-empty string up to 256 chars",
-        requestId,
-      });
-      return;
-    }
-    if (
-      typeof serviceId !== "string" ||
-      serviceId.length === 0 ||
-      serviceId.length > 128
-    ) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "serviceId must be a non-empty string up to 128 chars",
-        requestId,
-      });
-      return;
-    }
-    if (typeof requests !== "number" || !Number.isInteger(requests) || requests <= 0) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "requests must be a positive integer",
+        message: validation.message,
         requestId,
       });
       return;
     }
 
+    const { agent, serviceId, requests } = validation;
     if (servicesDisabled.has(serviceId)) {
       res.status(409).json({
         error: "service_disabled",
@@ -91,15 +111,14 @@ export function createUsageRouter(): Router {
     }
     const results: BulkUsageResult[] = [];
     for (let i = 0; i < items.length; i++) {
-      const { agent, serviceId, requests } = items[i] ?? {};
-      if (
-        typeof agent !== "string" ||
-        typeof serviceId !== "string" ||
-        typeof requests !== "number" ||
-        !Number.isInteger(requests) ||
-        requests <= 0
-      ) {
+      const validation = validateUsageItem(items[i] ?? {});
+      if (!validation.ok) {
         results.push({ index: i, ok: false, error: "invalid_item" });
+        continue;
+      }
+      const { agent, serviceId, requests } = validation;
+      if (servicesDisabled.has(serviceId)) {
+        results.push({ index: i, ok: false, error: "service_disabled" });
         continue;
       }
       const key = usageKey(agent, serviceId);
