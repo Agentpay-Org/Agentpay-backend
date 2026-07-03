@@ -89,6 +89,19 @@ API key for the metering flow until API-key enforcement lands. Add your own
 `X-Request-Id` header when you want to correlate client logs with backend
 responses. The backend echoes the value on success and structured errors.
 
+Every request that passes through the API rate limiter includes client
+self-throttling headers:
+
+- `RateLimit-Limit`: the maximum requests allowed in the current window.
+- `RateLimit-Remaining`: the remaining requests for the caller after this
+  response.
+- `RateLimit-Reset`: seconds until the oldest in-window request expires and
+  capacity is restored.
+
+When the caller is limited, the `429 rate_limited` response also includes
+`Retry-After` with the same resolved seconds as `RateLimit-Reset`. These values
+are derived only from the caller's own in-memory bucket.
+
 Set a shell variable for the local base URL:
 
 ```bash
