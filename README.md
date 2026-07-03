@@ -113,6 +113,13 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+   You may also include `description` and `owner` in the same request to create
+   service metadata atomically with registration. Both metadata fields must be
+   supplied together; `description` must be a string up to 256 characters and
+   `owner` must be a non-empty string up to 256 characters. Invalid metadata
+   rejects the entire request with `400 invalid_request` and does not register
+   the service.
+
    Bulk registration is available at `POST /api/v1/services/bulk` with an
    `items` array of 1-50 services. The endpoint keeps its partial-success
    response contract: valid unique items are applied, invalid items report
