@@ -180,8 +180,17 @@ export function createUsageRouter(): Router {
 
   router.get("/api/v1/billing/:agent/:serviceId", (req: Request, res: Response) => {
     const { agent, serviceId } = req.params;
+    const service = servicesStore.get(serviceId);
+    if (!service) {
+      res.status(404).json({
+        error: "not_found",
+        message: `service ${serviceId} is not registered`,
+        requestId: getRequestId(req),
+      });
+      return;
+    }
     const requests = usageStore.get(usageKey(agent, serviceId)) ?? 0;
-    const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
+    const price = service.priceStroops;
     res.json({
       agent,
       serviceId,
@@ -191,6 +200,7 @@ export function createUsageRouter(): Router {
     });
   });
 
+  /** Drains usage only after the target service is known and priced. */
   router.post("/api/v1/settle", (req: Request, res: Response) => {
     const { agent, serviceId } = req.body ?? {};
     const requestId = getRequestId(req);
@@ -202,9 +212,18 @@ export function createUsageRouter(): Router {
       });
       return;
     }
+    const service = servicesStore.get(serviceId);
+    if (!service) {
+      res.status(404).json({
+        error: "not_found",
+        message: `service ${serviceId} is not registered`,
+        requestId,
+      });
+      return;
+    }
     const key = usageKey(agent, serviceId);
     const requests = usageStore.get(key) ?? 0;
-    const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
+    const price = service.priceStroops;
     const billedStroops = requests * price;
     usageStore.set(key, 0);
     recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });

@@ -193,6 +193,8 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+   Unknown services return `404 not_found` instead of being priced at zero.
+
 6. Settle the bill and drain the accumulator.
 
    ```bash
@@ -213,6 +215,9 @@ BASE_URL=http://localhost:3001
      "billedStroops": 250
    }
    ```
+
+   Settlement for an unknown service returns `404 not_found` and leaves the
+   outstanding usage accumulator unchanged.
 
 7. Confirm the accumulator is now zero.
 
