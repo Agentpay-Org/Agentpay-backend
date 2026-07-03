@@ -231,6 +231,16 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+## Usage accumulator reset
+
+Use `DELETE /api/v1/usage/:agent/:serviceId` to correct a mis-recorded usage
+counter without generating a settlement or billed amount. The endpoint is a
+write, so it is blocked while the backend is paused. When the accumulator was
+recorded, the response returns the prior `clearedTotal`, sets the counter to
+zero, and appends a `usage.reset` audit event with `{ agent, serviceId,
+clearedTotal }`. Pairs that were never recorded return the standard
+`404 not_found` envelope.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
