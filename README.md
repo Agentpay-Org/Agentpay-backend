@@ -231,6 +231,20 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+## Error responses
+
+Write endpoints return stable JSON envelopes for body-level failures. Malformed
+JSON is reported as `400 invalid_request` with the message
+`Malformed JSON in request body`; the raw parser message and request body are not
+echoed back to clients. Bodies over the 100 KiB JSON limit remain
+`413 payload_too_large`.
+
+Unhandled server exceptions are logged with the request id, method, path, error
+message, and stack trace. Client-facing `500 internal_error` responses keep the
+request id for correlation but always use the generic message
+`Unexpected server error` so internal paths or secrets from exception messages
+are not leaked.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
