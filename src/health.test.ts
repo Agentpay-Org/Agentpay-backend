@@ -36,6 +36,19 @@ void describe("AgentPay Backend", () => {
     assert.strictEqual(res.headers["x-request-id"], caller);
   });
 
+  void it("does not expose the Express X-Powered-By header", async () => {
+    const responses = await Promise.all([
+      request(app).get("/health"),
+      request(app).get("/api/v1/usage/export.csv"),
+      request(app).get("/api/v1/metrics"),
+    ]);
+
+    for (const res of responses) {
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.headers["x-powered-by"], undefined);
+    }
+  });
+
   void it("disables a service then refuses usage with 409", async () => {
     await request(app)
       .post("/api/v1/services")
