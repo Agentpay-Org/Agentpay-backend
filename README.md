@@ -114,10 +114,13 @@ BASE_URL=http://localhost:3001
    ```
 
    Bulk registration is available at `POST /api/v1/services/bulk` with an
-   `items` array of 1-50 services. The endpoint keeps its partial-success
-   response contract: valid unique items are applied, invalid items report
-   `invalid_item`, and later occurrences of a duplicate `serviceId` in the same
-   batch report `duplicate_in_batch` without overwriting the first item.
+   `items` array controlled by the runtime `bulkMaxItems` config. The default
+   limit is 100 items, and `PATCH /api/v1/config` accepts `bulkMaxItems` values
+   from 1 to 1000. The same active limit applies to `POST /api/v1/usage/bulk`.
+   Bulk endpoints keep their partial-success response contract: valid unique
+   items are applied, invalid items report `invalid_item`, and later occurrences
+   of a duplicate `serviceId` in the same batch report `duplicate_in_batch`
+   without overwriting the first item.
 
 2. Record usage for an agent.
 
