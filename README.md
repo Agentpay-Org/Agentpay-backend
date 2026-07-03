@@ -231,6 +231,14 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+## Webhook Reads
+
+Registered webhooks can be listed with `GET /api/v1/webhooks` or fetched
+individually with `GET /api/v1/webhooks/:id`. The single-webhook response uses
+the same `{ id, url, events, createdAt }` shape returned by each list item.
+Unknown or deleted webhook ids return `404 not_found` with the standard
+`requestId` envelope.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
