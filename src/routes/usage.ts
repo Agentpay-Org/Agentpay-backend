@@ -7,6 +7,7 @@ import {
   usageStore,
 } from "../store/state.js";
 import { getRequestId } from "../types.js";
+import { scanByAgent, scanUsageStore } from "../usageScan.js";
 
 type BulkUsageResult = {
   index: number;
@@ -129,8 +130,7 @@ export function createUsageRouter(): Router {
   router.get("/api/v1/usage/export.csv", (_req, res: Response) => {
     const escape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
     const rows: string[] = ["agent,serviceId,total"];
-    for (const [key, total] of usageStore.entries()) {
-      const [agent, serviceId] = key.split("::");
+    for (const { agent, serviceId, total } of scanUsageStore()) {
       rows.push(`${escape(agent)},${escape(serviceId)},${total}`);
     }
     res.setHeader("Content-Type", "text/csv");
@@ -140,8 +140,7 @@ export function createUsageRouter(): Router {
 
   router.get("/api/v1/usage/export.json", (_req, res: Response) => {
     const items: { agent: string; serviceId: string; total: number }[] = [];
-    for (const [key, total] of usageStore.entries()) {
-      const [agent, serviceId] = key.split("::");
+    for (const { agent, serviceId, total } of scanUsageStore()) {
       items.push({ agent, serviceId, total });
     }
     res.setHeader("Content-Disposition", "attachment; filename=usage.json");
@@ -161,8 +160,7 @@ export function createUsageRouter(): Router {
       unpricedRequests: 0,
     };
 
-    for (const [key, requests] of usageStore.entries()) {
-      const [, serviceId] = key.split("::");
+    for (const { serviceId, total: requests } of scanUsageStore()) {
       const service = servicesStore.get(serviceId);
       if (!service) {
         breakdown.unpricedRequests += requests;
@@ -217,29 +215,25 @@ export function createUsageRouter(): Router {
       Math.max(1, Number((req.query.limit as string) ?? 200))
     );
     const seen = new Set<string>();
-    for (const key of usageStore.keys()) seen.add(key.split("::")[0]);
+    for (const { agent } of scanUsageStore()) seen.add(agent);
     const agents = Array.from(seen).slice(0, limit);
     res.json({ agents });
   });
 
   router.get("/api/v1/agents/:agent/total", (req: Request, res: Response) => {
     const { agent } = req.params;
-    const prefix = `${agent}::`;
     let total = 0;
-    for (const [key, n] of usageStore.entries()) {
-      if (key.startsWith(prefix)) total += n;
+    for (const entry of scanByAgent(agent)) {
+      total += entry.total;
     }
     res.json({ agent, total });
   });
 
   router.get("/api/v1/agents/:agent/usage", (req: Request, res: Response) => {
     const { agent } = req.params;
-    const prefix = `${agent}::`;
     const items: { serviceId: string; total: number }[] = [];
-    for (const [key, total] of usageStore.entries()) {
-      if (key.startsWith(prefix)) {
-        items.push({ serviceId: key.slice(prefix.length), total });
-      }
+    for (const { serviceId, total } of scanByAgent(agent)) {
+      items.push({ serviceId, total });
     }
     res.json({ agent, items });
   });

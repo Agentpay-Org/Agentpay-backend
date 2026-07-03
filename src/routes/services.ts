@@ -1,12 +1,8 @@
 import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import {
-  servicesDisabled,
-  servicesMetadata,
-  servicesStore,
-  usageStore,
-} from "../store/state.js";
+import { servicesDisabled, servicesMetadata, servicesStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
+import { scanByService } from "../usageScan.js";
 
 type ServiceReadShape = {
   serviceId: string;
@@ -111,14 +107,11 @@ export function createServicesRouter(): Router {
 
   router.get("/api/v1/services/:serviceId/usage", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const suffix = `::${serviceId}`;
     let total = 0;
     let agents = 0;
-    for (const [key, value] of usageStore.entries()) {
-      if (key.endsWith(suffix)) {
-        total += value;
-        agents++;
-      }
+    for (const entry of scanByService(serviceId)) {
+      total += entry.total;
+      agents++;
     }
     res.json({ serviceId, total, agents });
   });
@@ -131,12 +124,9 @@ export function createServicesRouter(): Router {
         100,
         Math.max(1, Number((req.query.limit as string) ?? 10))
       );
-      const suffix = `::${serviceId}`;
       const items: { agent: string; total: number }[] = [];
-      for (const [key, total] of usageStore.entries()) {
-        if (key.endsWith(suffix)) {
-          items.push({ agent: key.slice(0, key.length - suffix.length), total });
-        }
+      for (const { agent, total } of scanByService(serviceId)) {
+        items.push({ agent, total });
       }
       items.sort((a, b) => b.total - a.total);
       res.json({ serviceId, items: items.slice(0, limit) });
@@ -145,12 +135,9 @@ export function createServicesRouter(): Router {
 
   router.get("/api/v1/services/:serviceId/agents", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const suffix = `::${serviceId}`;
     const items: { agent: string; total: number }[] = [];
-    for (const [key, total] of usageStore.entries()) {
-      if (key.endsWith(suffix)) {
-        items.push({ agent: key.slice(0, key.length - suffix.length), total });
-      }
+    for (const { agent, total } of scanByService(serviceId)) {
+      items.push({ agent, total });
     }
     res.json({ serviceId, items });
   });
