@@ -1,4 +1,4 @@
-import express from "express";
+import express, { type Express } from "express";
 import {
   installPreRouteMiddleware,
   installRequestStateMiddleware,
@@ -19,7 +19,7 @@ const PORT = process.env.PORT ?? 3001;
 /**
  * Composes the AgentPay Express application from route and middleware modules.
  */
-function createApp() {
+function createApp(): Express {
   const app = express();
 
   installPreRouteMiddleware(app);
