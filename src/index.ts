@@ -14,7 +14,32 @@ import { createServicesRouter } from "./routes/services.js";
 import { createUsageRouter } from "./routes/usage.js";
 import { createWebhooksRouter } from "./routes/webhooks.js";
 
-const PORT = process.env.PORT ?? 3001;
+const DEFAULT_PORT = 3001;
+
+/**
+ * Resolves the HTTP listen port from environment config and rejects unsafe
+ * values before Node's server bootstrap sees them.
+ */
+function resolvePort(env: { PORT?: string | undefined } = process.env): number {
+  const rawPort = env.PORT;
+  if (rawPort === undefined) {
+    return DEFAULT_PORT;
+  }
+  if (!/^\d+$/.test(rawPort)) {
+    throw new Error(
+      `Invalid PORT ${JSON.stringify(rawPort)}; expected an integer from 1-65535`
+    );
+  }
+  const port = Number(rawPort);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(
+      `Invalid PORT ${JSON.stringify(rawPort)}; expected an integer from 1-65535`
+    );
+  }
+  return port;
+}
+
+const PORT = resolvePort();
 
 /**
  * Composes the AgentPay Express application from route and middleware modules.
@@ -67,4 +92,4 @@ if (process.argv[1]?.endsWith("index.js") || process.argv[1]?.endsWith("index.ts
   process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
-export { app, createApp };
+export { app, createApp, resolvePort };
