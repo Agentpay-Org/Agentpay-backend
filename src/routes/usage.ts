@@ -7,6 +7,7 @@ import {
   usageStore,
 } from "../store/state.js";
 import { getRequestId } from "../types.js";
+import { isSafeCount, MAX_REQUESTS_PER_CALL } from "../validation.js";
 
 type BulkUsageResult = {
   index: number;
@@ -51,10 +52,10 @@ export function createUsageRouter(): Router {
       });
       return;
     }
-    if (typeof requests !== "number" || !Number.isInteger(requests) || requests <= 0) {
+    if (!isSafeCount(requests)) {
       res.status(400).json({
         error: "invalid_request",
-        message: "requests must be a positive integer",
+        message: `requests must be a positive integer up to ${MAX_REQUESTS_PER_CALL}`,
         requestId,
       });
       return;
@@ -95,9 +96,7 @@ export function createUsageRouter(): Router {
       if (
         typeof agent !== "string" ||
         typeof serviceId !== "string" ||
-        typeof requests !== "number" ||
-        !Number.isInteger(requests) ||
-        requests <= 0
+        !isSafeCount(requests)
       ) {
         results.push({ index: i, ok: false, error: "invalid_item" });
         continue;

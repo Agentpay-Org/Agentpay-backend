@@ -7,6 +7,7 @@ import {
   usageStore,
 } from "../store/state.js";
 import { getRequestId } from "../types.js";
+import { isSafePrice, MAX_PRICE_STROOPS } from "../validation.js";
 
 type ServiceReadShape = {
   serviceId: string;
@@ -59,9 +60,7 @@ export function createServicesRouter(): Router {
           typeof serviceId !== "string" ||
           serviceId.length === 0 ||
           serviceId.length > 128 ||
-          typeof priceStroops !== "number" ||
-          !Number.isInteger(priceStroops) ||
-          priceStroops < 0
+          !isSafePrice(priceStroops)
         ) {
           return { index: i, ok: false, error: "invalid_item" };
         }
@@ -93,13 +92,11 @@ export function createServicesRouter(): Router {
       return;
     }
     if (
-      typeof priceStroops !== "number" ||
-      !Number.isInteger(priceStroops) ||
-      priceStroops < 0
+      !isSafePrice(priceStroops)
     ) {
       res.status(400).json({
         error: "invalid_request",
-        message: "priceStroops must be a non-negative integer",
+        message: `priceStroops must be a non-negative integer up to ${MAX_PRICE_STROOPS}`,
         requestId,
       });
       return;
@@ -258,13 +255,11 @@ export function createServicesRouter(): Router {
     }
     const { priceStroops } = req.body ?? {};
     if (
-      typeof priceStroops !== "number" ||
-      !Number.isInteger(priceStroops) ||
-      priceStroops < 0
+      !isSafePrice(priceStroops)
     ) {
       res.status(400).json({
         error: "invalid_request",
-        message: "priceStroops must be a non-negative integer",
+        message: `priceStroops must be a non-negative integer up to ${MAX_PRICE_STROOPS}`,
         requestId,
       });
       return;
