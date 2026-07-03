@@ -16,6 +16,23 @@ type ServiceReadShape = {
   owner?: string;
 };
 
+type ServiceAgentUsage = { agent: string; total: number };
+
+/** Sorts service consumers by usage, then by agent id for stable page boundaries. */
+function compareServiceAgents(a: ServiceAgentUsage, b: ServiceAgentUsage): number {
+  const totalDiff = b.total - a.total;
+  if (totalDiff !== 0) {
+    return totalDiff;
+  }
+  if (a.agent < b.agent) {
+    return -1;
+  }
+  if (a.agent > b.agent) {
+    return 1;
+  }
+  return 0;
+}
+
 /**
  * Builds the public read shape for service detail and list endpoints.
  */
@@ -132,13 +149,13 @@ export function createServicesRouter(): Router {
         Math.max(1, Number((req.query.limit as string) ?? 10))
       );
       const suffix = `::${serviceId}`;
-      const items: { agent: string; total: number }[] = [];
+      const items: ServiceAgentUsage[] = [];
       for (const [key, total] of usageStore.entries()) {
         if (key.endsWith(suffix)) {
           items.push({ agent: key.slice(0, key.length - suffix.length), total });
         }
       }
-      items.sort((a, b) => b.total - a.total);
+      items.sort(compareServiceAgents);
       res.json({ serviceId, items: items.slice(0, limit) });
     }
   );
@@ -146,12 +163,13 @@ export function createServicesRouter(): Router {
   router.get("/api/v1/services/:serviceId/agents", (req: Request, res: Response) => {
     const { serviceId } = req.params;
     const suffix = `::${serviceId}`;
-    const items: { agent: string; total: number }[] = [];
+    const items: ServiceAgentUsage[] = [];
     for (const [key, total] of usageStore.entries()) {
       if (key.endsWith(suffix)) {
         items.push({ agent: key.slice(0, key.length - suffix.length), total });
       }
     }
+    items.sort(compareServiceAgents);
     res.json({ serviceId, items });
   });
 

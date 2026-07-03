@@ -231,6 +231,14 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+## Service Agent Ordering
+
+`GET /api/v1/services/:serviceId/agents/top` and
+`GET /api/v1/services/:serviceId/agents` order consumers by descending total
+requests. When two agents have the same total, the response breaks ties by
+ascending agent id so repeated reads and paginated top-N boundaries stay
+deterministic.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
