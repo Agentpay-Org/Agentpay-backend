@@ -6,6 +6,12 @@ import {
   servicesStore,
   usageStore,
 } from "../store/state.js";
+import {
+  resolveTenantId,
+  serviceIdFromStoreKey,
+  tenantServiceKey,
+  usagePartsFromStoreKey,
+} from "../tenant.js";
 import { getRequestId } from "../types.js";
 
 type ServiceReadShape = {
@@ -21,15 +27,24 @@ type ServiceReadShape = {
  */
 function serviceReadShape(
   serviceId: string,
+  storeKey: string,
   meta: { priceStroops: number }
 ): ServiceReadShape {
-  const metadata = servicesMetadata.get(serviceId);
+  const metadata = servicesMetadata.get(storeKey);
   return {
     serviceId,
     priceStroops: meta.priceStroops,
-    disabled: servicesDisabled.has(serviceId),
+    disabled: servicesDisabled.has(storeKey),
     ...(metadata ?? {}),
   };
+}
+
+function sendServiceNotFound(req: Request, res: Response, serviceId: string): void {
+  res.status(404).json({
+    error: "not_found",
+    message: `service ${serviceId} is not registered`,
+    requestId: getRequestId(req),
+  });
 }
 
 /**
@@ -41,6 +56,7 @@ export function createServicesRouter(): Router {
   /** Registers up to 50 services while rejecting duplicate ids in the same batch. */
   router.post("/api/v1/services/bulk", (req: Request, res: Response) => {
     const requestId = getRequestId(req);
+    const tenantId = resolveTenantId(req);
     const { items } = req.body ?? {};
     if (!Array.isArray(items) || items.length === 0 || items.length > 50) {
       res.status(400).json({
@@ -50,7 +66,11 @@ export function createServicesRouter(): Router {
       });
       return;
     }
-    const serviceIdsAtBatchStart = new Set(servicesStore.keys());
+    const serviceIdsAtBatchStart = new Set(
+      Array.from(servicesStore.keys())
+        .map((storeKey) => serviceIdFromStoreKey(tenantId, storeKey))
+        .filter((serviceId): serviceId is string => typeof serviceId === "string")
+    );
     const seenServiceIds = new Set<string>();
     const results = items.map(
       (it: { serviceId?: unknown; priceStroops?: unknown }, i: number) => {
@@ -70,7 +90,7 @@ export function createServicesRouter(): Router {
         }
         seenServiceIds.add(serviceId);
         const isNew = !serviceIdsAtBatchStart.has(serviceId);
-        servicesStore.set(serviceId, { priceStroops });
+        servicesStore.set(tenantServiceKey(tenantId, serviceId), { priceStroops });
         return { index: i, ok: true, serviceId, priceStroops, created: isNew };
       }
     );
@@ -80,6 +100,7 @@ export function createServicesRouter(): Router {
   router.post("/api/v1/services", (req: Request, res: Response) => {
     const { serviceId, priceStroops } = req.body ?? {};
     const requestId = getRequestId(req);
+    const tenantId = resolveTenantId(req);
     if (
       typeof serviceId !== "string" ||
       serviceId.length === 0 ||
@@ -104,18 +125,24 @@ export function createServicesRouter(): Router {
       });
       return;
     }
-    const isNew = !servicesStore.has(serviceId);
-    servicesStore.set(serviceId, { priceStroops });
+    const storeKey = tenantServiceKey(tenantId, serviceId);
+    const isNew = !servicesStore.has(storeKey);
+    servicesStore.set(storeKey, { priceStroops });
     res.status(isNew ? 201 : 200).json({ serviceId, priceStroops });
   });
 
   router.get("/api/v1/services/:serviceId/usage", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const suffix = `::${serviceId}`;
+    const tenantId = resolveTenantId(req);
+    if (!servicesStore.has(tenantServiceKey(tenantId, serviceId))) {
+      sendServiceNotFound(req, res, serviceId);
+      return;
+    }
     let total = 0;
     let agents = 0;
     for (const [key, value] of usageStore.entries()) {
-      if (key.endsWith(suffix)) {
+      const parts = usagePartsFromStoreKey(tenantId, key);
+      if (parts?.serviceId === serviceId) {
         total += value;
         agents++;
       }
@@ -127,15 +154,20 @@ export function createServicesRouter(): Router {
     "/api/v1/services/:serviceId/agents/top",
     (req: Request, res: Response) => {
       const { serviceId } = req.params;
+      const tenantId = resolveTenantId(req);
+      if (!servicesStore.has(tenantServiceKey(tenantId, serviceId))) {
+        sendServiceNotFound(req, res, serviceId);
+        return;
+      }
       const limit = Math.min(
         100,
         Math.max(1, Number((req.query.limit as string) ?? 10))
       );
-      const suffix = `::${serviceId}`;
       const items: { agent: string; total: number }[] = [];
       for (const [key, total] of usageStore.entries()) {
-        if (key.endsWith(suffix)) {
-          items.push({ agent: key.slice(0, key.length - suffix.length), total });
+        const parts = usagePartsFromStoreKey(tenantId, key);
+        if (parts?.serviceId === serviceId) {
+          items.push({ agent: parts.agent, total });
         }
       }
       items.sort((a, b) => b.total - a.total);
@@ -145,11 +177,16 @@ export function createServicesRouter(): Router {
 
   router.get("/api/v1/services/:serviceId/agents", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const suffix = `::${serviceId}`;
+    const tenantId = resolveTenantId(req);
+    if (!servicesStore.has(tenantServiceKey(tenantId, serviceId))) {
+      sendServiceNotFound(req, res, serviceId);
+      return;
+    }
     const items: { agent: string; total: number }[] = [];
     for (const [key, total] of usageStore.entries()) {
-      if (key.endsWith(suffix)) {
-        items.push({ agent: key.slice(0, key.length - suffix.length), total });
+      const parts = usagePartsFromStoreKey(tenantId, key);
+      if (parts?.serviceId === serviceId) {
+        items.push({ agent: parts.agent, total });
       }
     }
     res.json({ serviceId, items });
@@ -158,27 +195,23 @@ export function createServicesRouter(): Router {
   /** Reads one service with its disabled state and optional metadata. */
   router.get("/api/v1/services/:serviceId", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const meta = servicesStore.get(serviceId);
+    const tenantId = resolveTenantId(req);
+    const storeKey = tenantServiceKey(tenantId, serviceId);
+    const meta = servicesStore.get(storeKey);
     if (!meta) {
-      res.status(404).json({
-        error: "not_found",
-        message: `service ${serviceId} is not registered`,
-        requestId: getRequestId(req),
-      });
+      sendServiceNotFound(req, res, serviceId);
       return;
     }
-    res.json(serviceReadShape(serviceId, meta));
+    res.json(serviceReadShape(serviceId, storeKey, meta));
   });
 
   router.put("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
     const { serviceId } = req.params;
     const requestId = getRequestId(req);
-    if (!servicesStore.has(serviceId)) {
-      res.status(404).json({
-        error: "not_found",
-        message: `service ${serviceId} is not registered`,
-        requestId,
-      });
+    const tenantId = resolveTenantId(req);
+    const storeKey = tenantServiceKey(tenantId, serviceId);
+    if (!servicesStore.has(storeKey)) {
+      sendServiceNotFound(req, res, serviceId);
       return;
     }
     const { description, owner } = req.body ?? {};
@@ -198,13 +231,19 @@ export function createServicesRouter(): Router {
       });
       return;
     }
-    servicesMetadata.set(serviceId, { description, owner });
+    servicesMetadata.set(storeKey, { description, owner });
     res.json({ serviceId, description, owner });
   });
 
   router.get("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const meta = servicesMetadata.get(serviceId);
+    const tenantId = resolveTenantId(req);
+    const storeKey = tenantServiceKey(tenantId, serviceId);
+    if (!servicesStore.has(storeKey)) {
+      sendServiceNotFound(req, res, serviceId);
+      return;
+    }
+    const meta = servicesMetadata.get(storeKey);
     if (!meta) {
       res.status(404).json({
         error: "not_found",
@@ -221,12 +260,10 @@ export function createServicesRouter(): Router {
     (req: Request, res: Response) => {
       const { serviceId } = req.params;
       const requestId = getRequestId(req);
-      if (!servicesStore.has(serviceId)) {
-        res.status(404).json({
-          error: "not_found",
-          message: `service ${serviceId} is not registered`,
-          requestId,
-        });
+      const tenantId = resolveTenantId(req);
+      const storeKey = tenantServiceKey(tenantId, serviceId);
+      if (!servicesStore.has(storeKey)) {
+        sendServiceNotFound(req, res, serviceId);
         return;
       }
       const { disabled } = req.body ?? {};
@@ -238,8 +275,8 @@ export function createServicesRouter(): Router {
         });
         return;
       }
-      if (disabled) servicesDisabled.add(serviceId);
-      else servicesDisabled.delete(serviceId);
+      if (disabled) servicesDisabled.add(storeKey);
+      else servicesDisabled.delete(storeKey);
       res.json({ serviceId, disabled });
     }
   );
@@ -247,13 +284,11 @@ export function createServicesRouter(): Router {
   router.patch("/api/v1/services/:serviceId/price", (req: Request, res: Response) => {
     const { serviceId } = req.params;
     const requestId = getRequestId(req);
-    const meta = servicesStore.get(serviceId);
+    const tenantId = resolveTenantId(req);
+    const storeKey = tenantServiceKey(tenantId, serviceId);
+    const meta = servicesStore.get(storeKey);
     if (!meta) {
-      res.status(404).json({
-        error: "not_found",
-        message: `service ${serviceId} is not registered`,
-        requestId,
-      });
+      sendServiceNotFound(req, res, serviceId);
       return;
     }
     const { priceStroops } = req.body ?? {};
@@ -270,26 +305,27 @@ export function createServicesRouter(): Router {
       return;
     }
     meta.priceStroops = priceStroops;
-    servicesStore.set(serviceId, meta);
+    servicesStore.set(storeKey, meta);
     res.json({ serviceId, ...meta });
   });
 
   router.delete("/api/v1/services/:serviceId", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    if (!servicesStore.has(serviceId)) {
-      res.status(404).json({
-        error: "not_found",
-        message: `service ${serviceId} is not registered`,
-        requestId: getRequestId(req),
-      });
+    const tenantId = resolveTenantId(req);
+    const storeKey = tenantServiceKey(tenantId, serviceId);
+    if (!servicesStore.has(storeKey)) {
+      sendServiceNotFound(req, res, serviceId);
       return;
     }
-    servicesStore.delete(serviceId);
+    servicesStore.delete(storeKey);
+    servicesDisabled.delete(storeKey);
+    servicesMetadata.delete(storeKey);
     res.status(204).send();
   });
 
   /** Lists services with their disabled state and optional metadata. */
   router.get("/api/v1/services", (req: Request, res: Response) => {
+    const tenantId = resolveTenantId(req);
     const prefix = typeof req.query.prefix === "string" ? req.query.prefix : "";
     const q = typeof req.query.q === "string" ? req.query.q.toLowerCase() : "";
     const limit = Math.min(
@@ -297,10 +333,12 @@ export function createServicesRouter(): Router {
       Math.max(1, Number((req.query.limit as string) ?? 200))
     );
     const services: ServiceReadShape[] = [];
-    for (const [serviceId, meta] of servicesStore.entries()) {
+    for (const [storeKey, meta] of servicesStore.entries()) {
+      const serviceId = serviceIdFromStoreKey(tenantId, storeKey);
+      if (!serviceId) continue;
       if (prefix && !serviceId.startsWith(prefix)) continue;
       if (q && !serviceId.toLowerCase().includes(q)) continue;
-      services.push(serviceReadShape(serviceId, meta));
+      services.push(serviceReadShape(serviceId, storeKey, meta));
       if (services.length >= limit) break;
     }
     const body = JSON.stringify({ services });

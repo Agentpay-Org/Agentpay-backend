@@ -5,6 +5,8 @@
  * for the lifetime of the Node process and resets on restart.
  */
 
+import { IMPLICIT_TENANT_ID, tenantUsageKey } from "../tenant.js";
+
 export type ApiKeyRecord = { label: string; createdAt: number };
 export type ServiceMetadataDto = { description: string; owner: string };
 export type WebhookRecord = { url: string; events: string[]; createdAt: number };
@@ -23,19 +25,23 @@ export const config: Record<string, number> = {
 /** Opaque API keys keyed by full secret token. */
 export const apiKeyStore = new Map<string, ApiKeyRecord>();
 
-/** Outstanding usage counters keyed by `${agent}::${serviceId}`. */
+/** Outstanding usage counters keyed by tenant-aware usage keys. */
 export const usageStore = new Map<string, number>();
 
 /** Builds the shared in-memory usage key for an agent/service pair. */
-export const usageKey = (agent: string, serviceId: string) => `${agent}::${serviceId}`;
+export const usageKey = (
+  agent: string,
+  serviceId: string,
+  tenantId = IMPLICIT_TENANT_ID
+) => tenantUsageKey(tenantId, agent, serviceId);
 
-/** Registered services and their per-request prices. */
+/** Registered services and their per-request prices, keyed by tenant-aware id. */
 export const servicesStore = new Map<string, { priceStroops: number }>();
 
-/** Services currently disabled for write traffic. */
+/** Services currently disabled for write traffic, keyed by tenant-aware id. */
 export const servicesDisabled = new Set<string>();
 
-/** Optional service description/owner metadata. */
+/** Optional service description/owner metadata, keyed by tenant-aware id. */
 export const servicesMetadata = new Map<string, ServiceMetadataDto>();
 
 /** Registered webhooks and their event subscriptions. */
