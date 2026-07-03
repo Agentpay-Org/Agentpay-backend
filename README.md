@@ -231,6 +231,14 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+## Service deletion lifecycle
+
+`DELETE /api/v1/services/:serviceId` removes the service registration and any
+attached service metadata or disabled-state flag, then emits a
+`service.deleted` audit event. Usage accumulators for the deleted service are
+retained as historical metering records until they are settled or reset through
+the usage APIs.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
