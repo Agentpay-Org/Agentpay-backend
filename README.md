@@ -231,6 +231,12 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+   Metrics distinguish the outstanding counter from lifetime throughput:
+   `agentpay_usage_requests_total` and `/api/v1/stats.totalRequests` are the
+   current unsettled totals, while `agentpay_requests_recorded_total` and
+   `/api/v1/stats.lifetimeRequests` are monotonically increasing process-local
+   counters that are not reduced by settlement.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
