@@ -231,6 +231,14 @@ BASE_URL=http://localhost:3001
    }
    ```
 
+## Webhook Event Subscriptions
+
+Webhook registrations accept only the documented event taxonomy:
+`usage.recorded`, `usage.settled`, `webhook.test`, or the `*` wildcard.
+`POST /api/v1/webhooks` and `PATCH /api/v1/webhooks/:id` reject unknown event
+names with `400 invalid_request` and name the unsupported value in the message.
+This keeps misspelled subscriptions from being stored silently.
+
 ## CI/CD
 
 On push/PR to `main`, GitHub Actions runs:
