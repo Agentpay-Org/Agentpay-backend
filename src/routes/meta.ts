@@ -1,5 +1,12 @@
-import { Router, type Response } from "express";
+import { Router, type Request, type Response } from "express";
+import { isReady } from "../readiness.js";
 import { pauseState } from "../store/state.js";
+
+/** Reports whether this process should receive fresh traffic. */
+export function handleReadiness(_req: Request, res: Response): void {
+  const ready = isReady();
+  res.status(ready ? 200 : 503).json({ ready });
+}
 
 /**
  * Builds health, version, changelog, and OpenAPI metadata routes.
@@ -24,6 +31,8 @@ export function createMetaRouter(): Router {
       node: process.version,
     });
   });
+
+  router.get("/api/v1/health/ready", handleReadiness);
 
   router.get("/api/v1/version", (_req, res: Response) => {
     res.json({ version: "1.0.0" });
@@ -58,6 +67,9 @@ export function createMetaRouter(): Router {
         "/health": { get: { summary: "Shallow health check" } },
         "/api/v1/health/deep": {
           get: { summary: "Deep health with process diagnostics" },
+        },
+        "/api/v1/health/ready": {
+          get: { summary: "Readiness check for load balancers" },
         },
         "/api/v1/version": { get: { summary: "App version" } },
         "/api/v1/stats": { get: { summary: "Aggregate stats snapshot" } },

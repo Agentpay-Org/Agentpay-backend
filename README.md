@@ -89,6 +89,31 @@ API key for the metering flow until API-key enforcement lands. Add your own
 `X-Request-Id` header when you want to correlate client logs with backend
 responses. The backend echoes the value on success and structured errors.
 
+## Health and readiness probes
+
+Use `GET /health` as the liveness probe. It returns `200` while the process is
+running, including during graceful shutdown drain, so supervisors can tell the
+process itself is still alive.
+
+Use `GET /api/v1/health/ready` as the readiness probe. It returns
+`200 { "ready": true }` during normal operation and
+`503 { "ready": false }` after `SIGTERM` or `SIGINT` starts graceful shutdown.
+The readiness response intentionally exposes only the boolean readiness signal.
+It is independent from the admin pause flag, which only gates write traffic.
+
+Example Kubernetes probes:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3001
+readinessProbe:
+  httpGet:
+    path: /api/v1/health/ready
+    port: 3001
+```
+
 Set a shell variable for the local base URL:
 
 ```bash

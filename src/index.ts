@@ -13,6 +13,7 @@ import { createMetricsRouter } from "./routes/metrics.js";
 import { createServicesRouter } from "./routes/services.js";
 import { createUsageRouter } from "./routes/usage.js";
 import { createWebhooksRouter } from "./routes/webhooks.js";
+import { markShuttingDown } from "./readiness.js";
 
 const PORT = process.env.PORT ?? 3001;
 
@@ -50,6 +51,7 @@ if (process.argv[1]?.endsWith("index.js") || process.argv[1]?.endsWith("index.ts
   });
 
   const shutdown = (signal: string) => {
+    markShuttingDown();
     console.log(`Received ${signal}, draining…`);
     server.close((err) => {
       if (err) {
