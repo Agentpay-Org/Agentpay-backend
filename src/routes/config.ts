@@ -6,6 +6,10 @@ const allowedConfigKeys = [
   "rateLimitPerWindow",
   "rateLimitWindowMs",
   "bulkMaxItems",
+  "usageStoreMaxKeys",
+  "servicesStoreMaxKeys",
+  "webhookStoreMaxKeys",
+  "apiKeyStoreMaxKeys",
 ] as const;
 
 /**

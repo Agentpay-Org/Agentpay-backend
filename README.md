@@ -74,6 +74,28 @@ agentpay-backend/
   stroops, `priceStroops`, `billedStroops`, `/api/v1/billing/*`, and why
   `POST /api/v1/settle` drains backend counters without moving funds.
 
+## In-memory store caps
+
+The development backend uses process-local maps. To keep long-running demos from
+growing without bound under unique-key floods, new entries are capped with safe
+defaults and can be tuned through `PATCH /api/v1/config`:
+
+| Config key             | Default | Store protected                          |
+| ---------------------- | ------: | ---------------------------------------- |
+| `usageStoreMaxKeys`    |  100000 | Distinct `(agent, serviceId)` counters   |
+| `servicesStoreMaxKeys` |   10000 | Registered services and service metadata |
+| `webhookStoreMaxKeys`  |   10000 | Registered webhooks                      |
+| `apiKeyStoreMaxKeys`   |   10000 | API keys                                 |
+
+When a request would create a new key past the configured cap, the API returns
+`429 store_capacity_exceeded` and leaves the store unchanged. Updates to existing
+keys remain allowed. `POST /api/v1/settle` deletes the drained usage key so that
+settled pairs free memory and capacity can be reused.
+
+Current store sizes are visible in `/api/v1/stats` and Prometheus metrics:
+`agentpay_usage_keys_total`, `agentpay_services_total`,
+`agentpay_webhooks_total`, and `agentpay_api_keys_total`.
+
 ## Quickstart
 
 Start a local backend on `http://localhost:3001` with the checked-in

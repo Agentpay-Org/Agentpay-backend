@@ -1,5 +1,11 @@
 import { Router, type Response } from "express";
-import { apiKeyStore, pauseState, servicesStore, usageStore } from "../store/state.js";
+import {
+  apiKeyStore,
+  pauseState,
+  servicesStore,
+  usageStore,
+  webhookStore,
+} from "../store/state.js";
 
 /**
  * Builds operational metrics and aggregate stats routes.
@@ -17,6 +23,12 @@ export function createMetricsRouter(): Router {
       "# HELP agentpay_api_keys_total Number of registered API keys.",
       "# TYPE agentpay_api_keys_total gauge",
       `agentpay_api_keys_total ${apiKeyStore.size}`,
+      "# HELP agentpay_webhooks_total Number of registered webhooks.",
+      "# TYPE agentpay_webhooks_total gauge",
+      `agentpay_webhooks_total ${webhookStore.size}`,
+      "# HELP agentpay_usage_keys_total Number of distinct usage store keys.",
+      "# TYPE agentpay_usage_keys_total gauge",
+      `agentpay_usage_keys_total ${usageStore.size}`,
       "# HELP agentpay_usage_requests_total Outstanding (unsettled) request counters.",
       "# TYPE agentpay_usage_requests_total gauge",
       `agentpay_usage_requests_total ${totalRequests}`,
@@ -38,6 +50,8 @@ export function createMetricsRouter(): Router {
     res.json({
       totalServices: servicesStore.size,
       totalApiKeys: apiKeyStore.size,
+      totalWebhooks: webhookStore.size,
+      usageKeys: usageStore.size,
       totalRequests,
       uniqueAgents: agents.size,
       paused: pauseState.paused,

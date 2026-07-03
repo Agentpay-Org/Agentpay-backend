@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
+import { hasCapacityForNewKey, storeCapacityError } from "../store/caps.js";
 import {
   servicesDisabled,
   servicesMetadata,
@@ -70,6 +71,17 @@ export function createServicesRouter(): Router {
         }
         seenServiceIds.add(serviceId);
         const isNew = !serviceIdsAtBatchStart.has(serviceId);
+        if (
+          isNew &&
+          !hasCapacityForNewKey(servicesStore, serviceId, "servicesStoreMaxKeys")
+        ) {
+          return {
+            index: i,
+            ok: false,
+            serviceId,
+            error: "store_capacity_exceeded",
+          };
+        }
         servicesStore.set(serviceId, { priceStroops });
         return { index: i, ok: true, serviceId, priceStroops, created: isNew };
       }
@@ -105,6 +117,15 @@ export function createServicesRouter(): Router {
       return;
     }
     const isNew = !servicesStore.has(serviceId);
+    if (
+      isNew &&
+      !hasCapacityForNewKey(servicesStore, serviceId, "servicesStoreMaxKeys")
+    ) {
+      res
+        .status(429)
+        .json(storeCapacityError("servicesStore", "servicesStoreMaxKeys", requestId));
+      return;
+    }
     servicesStore.set(serviceId, { priceStroops });
     res.status(isNew ? 201 : 200).json({ serviceId, priceStroops });
   });
@@ -285,6 +306,8 @@ export function createServicesRouter(): Router {
       return;
     }
     servicesStore.delete(serviceId);
+    servicesMetadata.delete(serviceId);
+    servicesDisabled.delete(serviceId);
     res.status(204).send();
   });
 

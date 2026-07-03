@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
+import { hasCapacityForNewKey, storeCapacityError } from "../store/caps.js";
 import { apiKeyStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
@@ -51,6 +52,12 @@ export function createApiKeysRouter(): Router {
       return;
     }
     const key = `apk_${randomUUID().replace(/-/g, "")}`;
+    if (!hasCapacityForNewKey(apiKeyStore, key, "apiKeyStoreMaxKeys")) {
+      res
+        .status(429)
+        .json(storeCapacityError("apiKeyStore", "apiKeyStoreMaxKeys", requestId));
+      return;
+    }
     apiKeyStore.set(key, { label, createdAt: Date.now() });
     res.status(201).json({ key, label });
   });

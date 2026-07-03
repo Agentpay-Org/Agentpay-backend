@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
+import { hasCapacityForNewKey, storeCapacityError } from "../store/caps.js";
 import {
   servicesDisabled,
   servicesStore,
@@ -70,6 +71,12 @@ export function createUsageRouter(): Router {
     }
 
     const key = usageKey(agent, serviceId);
+    if (!hasCapacityForNewKey(usageStore, key, "usageStoreMaxKeys")) {
+      res
+        .status(429)
+        .json(storeCapacityError("usageStore", "usageStoreMaxKeys", requestId));
+      return;
+    }
     const prev = usageStore.get(key) ?? 0;
     const total = Math.min(Number.MAX_SAFE_INTEGER, prev + requests);
     usageStore.set(key, total);
@@ -103,6 +110,14 @@ export function createUsageRouter(): Router {
         continue;
       }
       const key = usageKey(agent, serviceId);
+      if (!hasCapacityForNewKey(usageStore, key, "usageStoreMaxKeys")) {
+        results.push({
+          index: i,
+          ok: false,
+          error: "store_capacity_exceeded",
+        });
+        continue;
+      }
       const total = Math.min(
         Number.MAX_SAFE_INTEGER,
         (usageStore.get(key) ?? 0) + requests
@@ -206,7 +221,7 @@ export function createUsageRouter(): Router {
     const requests = usageStore.get(key) ?? 0;
     const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
     const billedStroops = requests * price;
-    usageStore.set(key, 0);
+    usageStore.delete(key);
     recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
     res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
   });

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
+import { hasCapacityForNewKey, storeCapacityError } from "../store/caps.js";
 import { webhookStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
@@ -115,6 +116,12 @@ export function createWebhooksRouter(): Router {
       return;
     }
     const id = `wh_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+    if (!hasCapacityForNewKey(webhookStore, id, "webhookStoreMaxKeys")) {
+      res
+        .status(429)
+        .json(storeCapacityError("webhookStore", "webhookStoreMaxKeys", requestId));
+      return;
+    }
     webhookStore.set(id, { url, events, createdAt: Date.now() });
     res.status(201).json({ id, url, events });
   });
