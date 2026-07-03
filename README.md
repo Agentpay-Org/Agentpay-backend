@@ -95,6 +95,26 @@ Set a shell variable for the local base URL:
 BASE_URL=http://localhost:3001
 ```
 
+## Response compression
+
+Large JSON and CSV responses are compressed when the client advertises
+`Accept-Encoding: gzip` or `deflate`. Compression is installed after the
+request-id and security-header middleware so existing tracing and hardening
+headers remain on compressed responses.
+
+Runtime knobs:
+
+| Variable                      | Default | Description                                                                                                  |
+| ----------------------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
+| `COMPRESSION`                 | `on`    | Set to `off`, `false`, `0`, or `disabled` to bypass compression.                                             |
+| `COMPRESSION_THRESHOLD_BYTES` | `1024`  | Minimum response size before compression is considered. Invalid or negative values fall back to the default. |
+
+`GET /api/v1/metrics` stays uncompressed so the Prometheus
+`Content-Type: text/plain; version=0.0.4` exposition remains predictable.
+The current API does not return reflected secrets in compressible responses;
+keep that boundary in mind before adding secret-bearing pages because
+compression can amplify BREACH-style side channels.
+
 1. Register a billable service.
 
    ```bash
