@@ -89,6 +89,13 @@ API key for the metering flow until API-key enforcement lands. Add your own
 `X-Request-Id` header when you want to correlate client logs with backend
 responses. The backend echoes the value on success and structured errors.
 
+## Observability Headers
+
+Every routed response includes a coarse `Server-Timing` header such as
+`app;dur=2.4`. The value is set before response headers are flushed and reports
+only total application handling time in milliseconds; it does not expose route
+internals, service identifiers, API keys, agents, or billing details.
+
 Set a shell variable for the local base URL:
 
 ```bash

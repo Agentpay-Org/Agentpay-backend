@@ -23,6 +23,7 @@ export function installPreRouteMiddleware(app: Application): void {
   app.use(express.json({ limit: "100kb" }));
   app.use(securityHeadersMiddleware);
   app.use(requestIdMiddleware);
+  app.use(requestTimerMiddleware);
 }
 
 /**
@@ -33,7 +34,6 @@ export function installRequestStateMiddleware(app: Application): void {
   app.use(apiKeyRecognitionMiddleware);
   app.use(pauseGuardMiddleware);
   app.use(rateLimitMiddleware);
-  app.use(requestTimerMiddleware);
 }
 
 /**
@@ -142,14 +142,30 @@ function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): v
   next();
 }
 
-/** Emits structured duration logs for completed requests. */
+/**
+ * Emits coarse request duration through the standard Server-Timing response
+ * header before headers flush, then logs the final structured duration on
+ * finish. The header intentionally exposes only the total app duration.
+ */
 function requestTimerMiddleware(req: Request, res: Response, next: NextFunction): void {
   const startNs = process.hrtime.bigint();
+  const originalWriteHead = res.writeHead.bind(res);
+  let serverTimingApplied = false;
+
+  const durationMs = () => Number(process.hrtime.bigint() - startNs) / 1_000_000;
+  const applyServerTimingHeader = () => {
+    if (serverTimingApplied || res.headersSent) return;
+    serverTimingApplied = true;
+    res.setHeader("Server-Timing", `app;dur=${durationMs().toFixed(1)}`);
+  };
+
+  res.writeHead = ((...args: Parameters<Response["writeHead"]>) => {
+    applyServerTimingHeader();
+    return originalWriteHead(...args);
+  }) as Response["writeHead"];
+
   res.on("finish", () => {
-    const ms = Number(process.hrtime.bigint() - startNs) / 1_000_000;
-    if (!res.headersSent) {
-      res.setHeader("Server-Timing", `app;dur=${ms.toFixed(1)}`);
-    }
+    const ms = durationMs();
     if (process.env.NODE_ENV !== "test") {
       console.log(
         JSON.stringify({
