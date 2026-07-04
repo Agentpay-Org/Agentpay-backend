@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { EVENT_LOG_CAP, eventLog } from "../events.js";
+import { parseIntParam } from "../queryParams.js";
 
 /**
  * Builds read-only audit-event routes.
@@ -14,12 +15,17 @@ export function createEventsRouter(): Router {
   });
 
   router.get("/api/v1/events", (req: Request, res: Response) => {
-    const since = Number((req.query.since as string) ?? 0);
+    const since = parseIntParam(req.query.since, {
+      defaultValue: 0,
+      min: 0,
+      max: Number.MAX_SAFE_INTEGER,
+    });
     const type = typeof req.query.type === "string" ? req.query.type : undefined;
-    const limit = Math.min(
-      EVENT_LOG_CAP,
-      Math.max(1, Number((req.query.limit as string) ?? 100))
-    );
+    const limit = parseIntParam(req.query.limit, {
+      defaultValue: 100,
+      min: 1,
+      max: EVENT_LOG_CAP,
+    });
     const items = eventLog
       .filter((e) => e.ts >= since && (type === undefined || e.type === type))
       .slice(-limit);

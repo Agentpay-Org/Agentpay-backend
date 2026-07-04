@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
+import { parseIntParam } from "../queryParams.js";
 import {
   servicesDisabled,
   servicesMetadata,
@@ -127,10 +128,11 @@ export function createServicesRouter(): Router {
     "/api/v1/services/:serviceId/agents/top",
     (req: Request, res: Response) => {
       const { serviceId } = req.params;
-      const limit = Math.min(
-        100,
-        Math.max(1, Number((req.query.limit as string) ?? 10))
-      );
+      const limit = parseIntParam(req.query.limit, {
+        defaultValue: 10,
+        min: 1,
+        max: 100,
+      });
       const suffix = `::${serviceId}`;
       const items: { agent: string; total: number }[] = [];
       for (const [key, total] of usageStore.entries()) {
@@ -292,10 +294,11 @@ export function createServicesRouter(): Router {
   router.get("/api/v1/services", (req: Request, res: Response) => {
     const prefix = typeof req.query.prefix === "string" ? req.query.prefix : "";
     const q = typeof req.query.q === "string" ? req.query.q.toLowerCase() : "";
-    const limit = Math.min(
-      1000,
-      Math.max(1, Number((req.query.limit as string) ?? 200))
-    );
+    const limit = parseIntParam(req.query.limit, {
+      defaultValue: 200,
+      min: 1,
+      max: 1000,
+    });
     const services: ServiceReadShape[] = [];
     for (const [serviceId, meta] of servicesStore.entries()) {
       if (prefix && !serviceId.startsWith(prefix)) continue;
