@@ -68,6 +68,32 @@ agentpay-backend/
 | `npm run dev`    | Run with ts-node                            |
 | `npm start`      | Run production build                        |
 
+## Running with Docker
+
+Build a production image from the repository root:
+
+```bash
+docker build -t agentpay-backend .
+```
+
+Run it locally, publishing the API on `http://localhost:3001`:
+
+```bash
+docker run --rm --name agentpay-backend -p 3001:3001 -e PORT=3001 agentpay-backend
+```
+
+Check the container health endpoint:
+
+```bash
+curl -fsS http://localhost:3001/health
+```
+
+The runtime image contains only production dependencies and the compiled
+`dist/` output, runs as the non-root `node` user, and uses `SIGTERM` as the
+stop signal so the application graceful-shutdown handler can drain in-flight
+requests. Pass configuration with `-e NAME=value` or `--env-file`; real `.env`
+files are ignored by Docker builds and must not be baked into image layers.
+
 ## Documentation
 
 - [Billing units and settlement semantics](docs/billing-units.md) explains
