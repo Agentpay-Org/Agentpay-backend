@@ -70,6 +70,9 @@ agentpay-backend/
 
 ## Documentation
 
+- [Architecture and settlement flow](docs/architecture.md) explains the
+  in-memory data model, middleware/request lifecycle, off-chain metering flow,
+  and where durable storage plus on-chain settlement should plug in.
 - [Billing units and settlement semantics](docs/billing-units.md) explains
   stroops, `priceStroops`, `billedStroops`, `/api/v1/billing/*`, and why
   `POST /api/v1/settle` drains backend counters without moving funds.
