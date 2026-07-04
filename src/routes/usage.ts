@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
+import { validateBody } from "../middleware/validate.js";
+import { requestBodySchemas } from "../schemas/requestBodies.js";
 import {
   servicesDisabled,
   servicesStore,
@@ -21,104 +23,82 @@ type BillingTotalBreakdown = {
   unpricedRequests: number;
 };
 
+type UsageRecordBody = { agent: string; serviceId: string; requests: number };
+type BulkUsageBody = { items: unknown[] };
+type SettleBody = { agent: string; serviceId: string };
+
 /**
  * Builds usage, billing, settlement, and agent rollup routes.
  */
 export function createUsageRouter(): Router {
   const router = Router();
 
-  router.post("/api/v1/usage", (req: Request, res: Response) => {
-    const { agent, serviceId, requests } = req.body ?? {};
-    const requestId = getRequestId(req);
+  router.post(
+    "/api/v1/usage",
+    validateBody(requestBodySchemas.usageRecord),
+    (req: Request, res: Response) => {
+      const { agent, serviceId, requests } = req.body as UsageRecordBody;
+      const requestId = getRequestId(req);
 
-    if (typeof agent !== "string" || agent.length === 0 || agent.length > 256) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "agent must be a non-empty string up to 256 chars",
-        requestId,
-      });
-      return;
-    }
-    if (
-      typeof serviceId !== "string" ||
-      serviceId.length === 0 ||
-      serviceId.length > 128
-    ) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "serviceId must be a non-empty string up to 128 chars",
-        requestId,
-      });
-      return;
-    }
-    if (typeof requests !== "number" || !Number.isInteger(requests) || requests <= 0) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "requests must be a positive integer",
-        requestId,
-      });
-      return;
-    }
-
-    if (servicesDisabled.has(serviceId)) {
-      res.status(409).json({
-        error: "service_disabled",
-        message: `service ${serviceId} is currently disabled`,
-        requestId,
-      });
-      return;
-    }
-
-    const key = usageKey(agent, serviceId);
-    const prev = usageStore.get(key) ?? 0;
-    const total = Math.min(Number.MAX_SAFE_INTEGER, prev + requests);
-    usageStore.set(key, total);
-
-    recordEvent("usage.recorded", { agent, serviceId, requests, total });
-    res.status(201).json({ agent, serviceId, total });
-  });
-
-  router.post("/api/v1/usage/bulk", (req: Request, res: Response) => {
-    const requestId = getRequestId(req);
-    const { items } = req.body ?? {};
-    if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "items must be a non-empty array of up to 100 entries",
-        requestId,
-      });
-      return;
-    }
-    const results: BulkUsageResult[] = [];
-    for (let i = 0; i < items.length; i++) {
-      const { agent, serviceId, requests } = items[i] ?? {};
-      if (
-        typeof agent !== "string" ||
-        typeof serviceId !== "string" ||
-        typeof requests !== "number" ||
-        !Number.isInteger(requests) ||
-        requests <= 0
-      ) {
-        results.push({ index: i, ok: false, error: "invalid_item" });
-        continue;
+      if (servicesDisabled.has(serviceId)) {
+        res.status(409).json({
+          error: "service_disabled",
+          message: `service ${serviceId} is currently disabled`,
+          requestId,
+        });
+        return;
       }
+
       const key = usageKey(agent, serviceId);
-      const total = Math.min(
-        Number.MAX_SAFE_INTEGER,
-        (usageStore.get(key) ?? 0) + requests
-      );
+      const prev = usageStore.get(key) ?? 0;
+      const total = Math.min(Number.MAX_SAFE_INTEGER, prev + requests);
       usageStore.set(key, total);
-      recordEvent("usage.recorded", {
-        agent,
-        serviceId,
-        requests,
-        total,
-        bulk: true,
-      });
-      results.push({ index: i, ok: true, total });
+
+      recordEvent("usage.recorded", { agent, serviceId, requests, total });
+      res.status(201).json({ agent, serviceId, total });
     }
-    res.status(201).json({ results });
-  });
+  );
+
+  router.post(
+    "/api/v1/usage/bulk",
+    validateBody(requestBodySchemas.bulkUsage),
+    (req: Request, res: Response) => {
+      const { items } = req.body as BulkUsageBody;
+      const results: BulkUsageResult[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const { agent, serviceId, requests } = (items[i] ?? {}) as {
+          agent?: unknown;
+          serviceId?: unknown;
+          requests?: unknown;
+        };
+        if (
+          typeof agent !== "string" ||
+          typeof serviceId !== "string" ||
+          typeof requests !== "number" ||
+          !Number.isInteger(requests) ||
+          requests <= 0
+        ) {
+          results.push({ index: i, ok: false, error: "invalid_item" });
+          continue;
+        }
+        const key = usageKey(agent, serviceId);
+        const total = Math.min(
+          Number.MAX_SAFE_INTEGER,
+          (usageStore.get(key) ?? 0) + requests
+        );
+        usageStore.set(key, total);
+        recordEvent("usage.recorded", {
+          agent,
+          serviceId,
+          requests,
+          total,
+          bulk: true,
+        });
+        results.push({ index: i, ok: true, total });
+      }
+      res.status(201).json({ results });
+    }
+  );
 
   router.get("/api/v1/usage/:agent/:serviceId", (req: Request, res: Response) => {
     const { agent, serviceId } = req.params;
@@ -191,25 +171,20 @@ export function createUsageRouter(): Router {
     });
   });
 
-  router.post("/api/v1/settle", (req: Request, res: Response) => {
-    const { agent, serviceId } = req.body ?? {};
-    const requestId = getRequestId(req);
-    if (typeof agent !== "string" || typeof serviceId !== "string") {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "agent and serviceId are required strings",
-        requestId,
-      });
-      return;
+  router.post(
+    "/api/v1/settle",
+    validateBody(requestBodySchemas.settle),
+    (req: Request, res: Response) => {
+      const { agent, serviceId } = req.body as SettleBody;
+      const key = usageKey(agent, serviceId);
+      const requests = usageStore.get(key) ?? 0;
+      const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
+      const billedStroops = requests * price;
+      usageStore.set(key, 0);
+      recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
+      res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
     }
-    const key = usageKey(agent, serviceId);
-    const requests = usageStore.get(key) ?? 0;
-    const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
-    const billedStroops = requests * price;
-    usageStore.set(key, 0);
-    recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
-    res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
-  });
+  );
 
   router.get("/api/v1/agents", (req: Request, res: Response) => {
     const limit = Math.min(

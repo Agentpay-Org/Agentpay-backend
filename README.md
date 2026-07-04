@@ -89,6 +89,11 @@ API key for the metering flow until API-key enforcement lands. Add your own
 `X-Request-Id` header when you want to correlate client logs with backend
 responses. The backend echoes the value on success and structured errors.
 
+Write endpoints use shared request-body schemas before route handlers run. The
+same schema registry backs the OpenAPI request-body components, rejects unknown
+fields, and preserves the existing `400 invalid_request` response shape with a
+client `message` and `requestId`.
+
 Set a shell variable for the local base URL:
 
 ```bash

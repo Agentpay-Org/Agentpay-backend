@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
+import { validateBody } from "../middleware/validate.js";
+import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { webhookStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
@@ -48,76 +50,43 @@ export function createWebhooksRouter(): Router {
     res.json({ id, deliveredAt: Date.now(), simulated: true });
   });
 
-  router.patch("/api/v1/webhooks/:id", (req: Request, res: Response) => {
-    const { id } = req.params;
-    const requestId = getRequestId(req);
-    const existing = webhookStore.get(id);
-    if (!existing) {
-      res.status(404).json({
-        error: "not_found",
-        message: `webhook ${id} not registered`,
-        requestId,
-      });
-      return;
-    }
-    const { url, events } = req.body ?? {};
-    if (url !== undefined) {
-      if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) {
-        res.status(400).json({
-          error: "invalid_request",
-          message: "url must be an http(s) URL up to 2048 chars",
+  router.patch(
+    "/api/v1/webhooks/:id",
+    validateBody(requestBodySchemas.webhookPatch),
+    (req: Request, res: Response) => {
+      const { id } = req.params;
+      const requestId = getRequestId(req);
+      const existing = webhookStore.get(id);
+      if (!existing) {
+        res.status(404).json({
+          error: "not_found",
+          message: `webhook ${id} not registered`,
           requestId,
         });
         return;
       }
-      existing.url = url;
-    }
-    if (events !== undefined) {
-      if (
-        !Array.isArray(events) ||
-        events.length === 0 ||
-        events.some((e) => typeof e !== "string")
-      ) {
-        res.status(400).json({
-          error: "invalid_request",
-          message: "events must be a non-empty array of strings",
-          requestId,
-        });
-        return;
+      const { url, events } = req.body ?? {};
+      if (url !== undefined) {
+        existing.url = url;
       }
-      existing.events = events;
+      if (events !== undefined) {
+        existing.events = events;
+      }
+      webhookStore.set(id, existing);
+      res.json({ id, ...existing });
     }
-    webhookStore.set(id, existing);
-    res.json({ id, ...existing });
-  });
+  );
 
-  router.post("/api/v1/webhooks", (req: Request, res: Response) => {
-    const { url, events } = req.body ?? {};
-    const requestId = getRequestId(req);
-    if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "url must be an http(s) URL up to 2048 chars",
-        requestId,
-      });
-      return;
+  router.post(
+    "/api/v1/webhooks",
+    validateBody(requestBodySchemas.webhookCreate),
+    (req: Request, res: Response) => {
+      const { url, events } = req.body ?? {};
+      const id = `wh_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+      webhookStore.set(id, { url, events, createdAt: Date.now() });
+      res.status(201).json({ id, url, events });
     }
-    if (
-      !Array.isArray(events) ||
-      events.length === 0 ||
-      events.some((e) => typeof e !== "string")
-    ) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "events must be a non-empty array of strings",
-        requestId,
-      });
-      return;
-    }
-    const id = `wh_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
-    webhookStore.set(id, { url, events, createdAt: Date.now() });
-    res.status(201).json({ id, url, events });
-  });
+  );
 
   return router;
 }

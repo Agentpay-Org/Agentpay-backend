@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
+import { validateBody } from "../middleware/validate.js";
+import { requestBodySchemas } from "../schemas/requestBodies.js";
 import {
   servicesDisabled,
   servicesMetadata,
@@ -15,6 +17,14 @@ type ServiceReadShape = {
   description?: string;
   owner?: string;
 };
+
+type BulkServicesBody = {
+  items: { serviceId?: unknown; priceStroops?: unknown }[];
+};
+type ServiceCreateBody = { serviceId: string; priceStroops: number };
+type ServiceMetadataBody = { description: string; owner: string };
+type ServiceDisabledBody = { disabled: boolean };
+type ServicePriceBody = { priceStroops: number };
 
 /**
  * Builds the public read shape for service detail and list endpoints.
@@ -39,75 +49,49 @@ export function createServicesRouter(): Router {
   const router = Router();
 
   /** Registers up to 50 services while rejecting duplicate ids in the same batch. */
-  router.post("/api/v1/services/bulk", (req: Request, res: Response) => {
-    const requestId = getRequestId(req);
-    const { items } = req.body ?? {};
-    if (!Array.isArray(items) || items.length === 0 || items.length > 50) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "items must be 1-50 entries",
-        requestId,
-      });
-      return;
+  router.post(
+    "/api/v1/services/bulk",
+    validateBody(requestBodySchemas.bulkServices),
+    (req: Request, res: Response) => {
+      const { items } = req.body as BulkServicesBody;
+      const serviceIdsAtBatchStart = new Set(servicesStore.keys());
+      const seenServiceIds = new Set<string>();
+      const results = items.map(
+        (it: { serviceId?: unknown; priceStroops?: unknown }, i: number) => {
+          const { serviceId, priceStroops } = it ?? {};
+          if (
+            typeof serviceId !== "string" ||
+            serviceId.length === 0 ||
+            serviceId.length > 128 ||
+            typeof priceStroops !== "number" ||
+            !Number.isInteger(priceStroops) ||
+            priceStroops < 0
+          ) {
+            return { index: i, ok: false, error: "invalid_item" };
+          }
+          if (seenServiceIds.has(serviceId)) {
+            return { index: i, ok: false, serviceId, error: "duplicate_in_batch" };
+          }
+          seenServiceIds.add(serviceId);
+          const isNew = !serviceIdsAtBatchStart.has(serviceId);
+          servicesStore.set(serviceId, { priceStroops });
+          return { index: i, ok: true, serviceId, priceStroops, created: isNew };
+        }
+      );
+      res.status(201).json({ results });
     }
-    const serviceIdsAtBatchStart = new Set(servicesStore.keys());
-    const seenServiceIds = new Set<string>();
-    const results = items.map(
-      (it: { serviceId?: unknown; priceStroops?: unknown }, i: number) => {
-        const { serviceId, priceStroops } = it ?? {};
-        if (
-          typeof serviceId !== "string" ||
-          serviceId.length === 0 ||
-          serviceId.length > 128 ||
-          typeof priceStroops !== "number" ||
-          !Number.isInteger(priceStroops) ||
-          priceStroops < 0
-        ) {
-          return { index: i, ok: false, error: "invalid_item" };
-        }
-        if (seenServiceIds.has(serviceId)) {
-          return { index: i, ok: false, serviceId, error: "duplicate_in_batch" };
-        }
-        seenServiceIds.add(serviceId);
-        const isNew = !serviceIdsAtBatchStart.has(serviceId);
-        servicesStore.set(serviceId, { priceStroops });
-        return { index: i, ok: true, serviceId, priceStroops, created: isNew };
-      }
-    );
-    res.status(201).json({ results });
-  });
+  );
 
-  router.post("/api/v1/services", (req: Request, res: Response) => {
-    const { serviceId, priceStroops } = req.body ?? {};
-    const requestId = getRequestId(req);
-    if (
-      typeof serviceId !== "string" ||
-      serviceId.length === 0 ||
-      serviceId.length > 128
-    ) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "serviceId must be a non-empty string up to 128 chars",
-        requestId,
-      });
-      return;
+  router.post(
+    "/api/v1/services",
+    validateBody(requestBodySchemas.serviceCreate),
+    (req: Request, res: Response) => {
+      const { serviceId, priceStroops } = req.body as ServiceCreateBody;
+      const isNew = !servicesStore.has(serviceId);
+      servicesStore.set(serviceId, { priceStroops });
+      res.status(isNew ? 201 : 200).json({ serviceId, priceStroops });
     }
-    if (
-      typeof priceStroops !== "number" ||
-      !Number.isInteger(priceStroops) ||
-      priceStroops < 0
-    ) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "priceStroops must be a non-negative integer",
-        requestId,
-      });
-      return;
-    }
-    const isNew = !servicesStore.has(serviceId);
-    servicesStore.set(serviceId, { priceStroops });
-    res.status(isNew ? 201 : 200).json({ serviceId, priceStroops });
-  });
+  );
 
   router.get("/api/v1/services/:serviceId/usage", (req: Request, res: Response) => {
     const { serviceId } = req.params;
@@ -170,37 +154,25 @@ export function createServicesRouter(): Router {
     res.json(serviceReadShape(serviceId, meta));
   });
 
-  router.put("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
-    const { serviceId } = req.params;
-    const requestId = getRequestId(req);
-    if (!servicesStore.has(serviceId)) {
-      res.status(404).json({
-        error: "not_found",
-        message: `service ${serviceId} is not registered`,
-        requestId,
-      });
-      return;
+  router.put(
+    "/api/v1/services/:serviceId/metadata",
+    validateBody(requestBodySchemas.serviceMetadataPut),
+    (req: Request, res: Response) => {
+      const { serviceId } = req.params;
+      const requestId = getRequestId(req);
+      if (!servicesStore.has(serviceId)) {
+        res.status(404).json({
+          error: "not_found",
+          message: `service ${serviceId} is not registered`,
+          requestId,
+        });
+        return;
+      }
+      const { description, owner } = req.body as ServiceMetadataBody;
+      servicesMetadata.set(serviceId, { description, owner });
+      res.json({ serviceId, description, owner });
     }
-    const { description, owner } = req.body ?? {};
-    if (typeof description !== "string" || description.length > 256) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "description must be a string up to 256 chars",
-        requestId,
-      });
-      return;
-    }
-    if (typeof owner !== "string" || owner.length === 0 || owner.length > 256) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "owner must be a non-empty string up to 256 chars",
-        requestId,
-      });
-      return;
-    }
-    servicesMetadata.set(serviceId, { description, owner });
-    res.json({ serviceId, description, owner });
-  });
+  );
 
   router.get("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
     const { serviceId } = req.params;
@@ -218,6 +190,7 @@ export function createServicesRouter(): Router {
 
   router.patch(
     "/api/v1/services/:serviceId/disabled",
+    validateBody(requestBodySchemas.serviceDisabledPatch),
     (req: Request, res: Response) => {
       const { serviceId } = req.params;
       const requestId = getRequestId(req);
@@ -229,50 +202,34 @@ export function createServicesRouter(): Router {
         });
         return;
       }
-      const { disabled } = req.body ?? {};
-      if (typeof disabled !== "boolean") {
-        res.status(400).json({
-          error: "invalid_request",
-          message: "disabled must be a boolean",
-          requestId,
-        });
-        return;
-      }
+      const { disabled } = req.body as ServiceDisabledBody;
       if (disabled) servicesDisabled.add(serviceId);
       else servicesDisabled.delete(serviceId);
       res.json({ serviceId, disabled });
     }
   );
 
-  router.patch("/api/v1/services/:serviceId/price", (req: Request, res: Response) => {
-    const { serviceId } = req.params;
-    const requestId = getRequestId(req);
-    const meta = servicesStore.get(serviceId);
-    if (!meta) {
-      res.status(404).json({
-        error: "not_found",
-        message: `service ${serviceId} is not registered`,
-        requestId,
-      });
-      return;
+  router.patch(
+    "/api/v1/services/:serviceId/price",
+    validateBody(requestBodySchemas.servicePricePatch),
+    (req: Request, res: Response) => {
+      const { serviceId } = req.params;
+      const requestId = getRequestId(req);
+      const meta = servicesStore.get(serviceId);
+      if (!meta) {
+        res.status(404).json({
+          error: "not_found",
+          message: `service ${serviceId} is not registered`,
+          requestId,
+        });
+        return;
+      }
+      const { priceStroops } = req.body as ServicePriceBody;
+      meta.priceStroops = priceStroops;
+      servicesStore.set(serviceId, meta);
+      res.json({ serviceId, ...meta });
     }
-    const { priceStroops } = req.body ?? {};
-    if (
-      typeof priceStroops !== "number" ||
-      !Number.isInteger(priceStroops) ||
-      priceStroops < 0
-    ) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "priceStroops must be a non-negative integer",
-        requestId,
-      });
-      return;
-    }
-    meta.priceStroops = priceStroops;
-    servicesStore.set(serviceId, meta);
-    res.json({ serviceId, ...meta });
-  });
+  );
 
   router.delete("/api/v1/services/:serviceId", (req: Request, res: Response) => {
     const { serviceId } = req.params;

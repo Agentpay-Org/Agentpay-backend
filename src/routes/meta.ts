@@ -1,4 +1,8 @@
 import { Router, type Response } from "express";
+import {
+  jsonRequestBodyRef,
+  openApiRequestBodyComponents,
+} from "../schemas/requestBodies.js";
 import { pauseState } from "../store/state.js";
 
 /**
@@ -65,42 +69,100 @@ export function createMetaRouter(): Router {
         "/api/v1/events": { get: { summary: "Audit log (?since=&limit=)" } },
         "/api/v1/config": {
           get: { summary: "Read runtime config" },
-          patch: { summary: "Update runtime config" },
+          patch: {
+            summary: "Update runtime config",
+            requestBody: jsonRequestBodyRef("configPatch"),
+          },
         },
         "/api/v1/services": {
           get: { summary: "List services" },
-          post: { summary: "Register a service" },
+          post: {
+            summary: "Register a service",
+            requestBody: jsonRequestBodyRef("serviceCreate"),
+          },
+        },
+        "/api/v1/services/bulk": {
+          post: {
+            summary: "Register services in bulk",
+            requestBody: jsonRequestBodyRef("bulkServices"),
+          },
         },
         "/api/v1/services/{serviceId}": {
           get: { summary: "Fetch one service" },
           delete: { summary: "Unregister service" },
         },
         "/api/v1/services/{serviceId}/price": {
-          patch: { summary: "Update price only" },
+          patch: {
+            summary: "Update price only",
+            requestBody: jsonRequestBodyRef("servicePricePatch"),
+          },
+        },
+        "/api/v1/services/{serviceId}/metadata": {
+          get: { summary: "Read service metadata" },
+          put: {
+            summary: "Set service metadata",
+            requestBody: jsonRequestBodyRef("serviceMetadataPut"),
+          },
+        },
+        "/api/v1/services/{serviceId}/disabled": {
+          patch: {
+            summary: "Enable or disable a service",
+            requestBody: jsonRequestBodyRef("serviceDisabledPatch"),
+          },
         },
         "/api/v1/services/{serviceId}/agents": {
           get: { summary: "List agents on a service" },
         },
         "/api/v1/agents/{agent}/usage": { get: { summary: "Per-service usage" } },
         "/api/v1/agents/{agent}/total": { get: { summary: "Lifetime total" } },
-        "/api/v1/usage": { post: { summary: "Record usage" } },
-        "/api/v1/usage/bulk": { post: { summary: "Batched record" } },
+        "/api/v1/usage": {
+          post: {
+            summary: "Record usage",
+            requestBody: jsonRequestBodyRef("usageRecord"),
+          },
+        },
+        "/api/v1/usage/bulk": {
+          post: {
+            summary: "Batched record",
+            requestBody: jsonRequestBodyRef("bulkUsage"),
+          },
+        },
         "/api/v1/usage/{agent}/{serviceId}": { get: { summary: "Read accumulator" } },
         "/api/v1/billing/{agent}/{serviceId}": { get: { summary: "Quote bill" } },
-        "/api/v1/settle": { post: { summary: "Drain & quote bill" } },
+        "/api/v1/settle": {
+          post: {
+            summary: "Drain & quote bill",
+            requestBody: jsonRequestBodyRef("settle"),
+          },
+        },
         "/api/v1/api-keys": {
           get: { summary: "List api keys" },
-          post: { summary: "Create api key" },
+          post: {
+            summary: "Create api key",
+            requestBody: jsonRequestBodyRef("apiKeyCreate"),
+          },
         },
         "/api/v1/api-keys/{prefix}": { delete: { summary: "Revoke by prefix" } },
         "/api/v1/webhooks": {
           get: { summary: "List webhooks" },
-          post: { summary: "Register webhook" },
+          post: {
+            summary: "Register webhook",
+            requestBody: jsonRequestBodyRef("webhookCreate"),
+          },
         },
-        "/api/v1/webhooks/{id}": { delete: { summary: "Unregister webhook" } },
+        "/api/v1/webhooks/{id}": {
+          delete: { summary: "Unregister webhook" },
+          patch: {
+            summary: "Update webhook",
+            requestBody: jsonRequestBodyRef("webhookPatch"),
+          },
+        },
         "/api/v1/admin/pause": { post: { summary: "Pause writes" } },
         "/api/v1/admin/unpause": { post: { summary: "Resume" } },
         "/api/v1/admin/status": { get: { summary: "Read pause flag" } },
+      },
+      components: {
+        schemas: openApiRequestBodyComponents,
       },
     });
   });

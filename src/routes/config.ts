@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
+import { validateBody } from "../middleware/validate.js";
+import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { config } from "../store/state.js";
-import { getRequestId } from "../types.js";
 
 const allowedConfigKeys = [
   "rateLimitPerWindow",
@@ -18,25 +19,20 @@ export function createConfigRouter(): Router {
     res.json({ config });
   });
 
-  router.patch("/api/v1/config", (req: Request, res: Response) => {
-    const requestId = getRequestId(req);
-    const updates = req.body ?? {};
-    for (const k of allowedConfigKeys) {
-      if (k in updates) {
-        const v = updates[k];
-        if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) {
-          res.status(400).json({
-            error: "invalid_request",
-            message: `${k} must be a positive integer`,
-            requestId,
-          });
-          return;
+  router.patch(
+    "/api/v1/config",
+    validateBody(requestBodySchemas.configPatch),
+    (req: Request, res: Response) => {
+      const updates = req.body ?? {};
+      for (const k of allowedConfigKeys) {
+        if (k in updates) {
+          const v = updates[k];
+          config[k] = v;
         }
-        config[k] = v;
       }
+      res.json({ config });
     }
-    res.json({ config });
-  });
+  );
 
   return router;
 }
