@@ -40,16 +40,16 @@ export function installRequestStateMiddleware(app: Application): void {
  * CORS allowlist middleware backed by CORS_ALLOWED_ORIGINS.
  */
 function createCorsMiddleware() {
-  const corsAllowed = (process.env.CORS_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const corsAllowed = parseCorsOrigins(process.env.CORS_ALLOWED_ORIGINS);
 
   return (req: Request, res: Response, next: NextFunction) => {
     const origin = req.header("origin");
-    if (origin && corsAllowed.includes(origin)) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Vary", "Origin");
+    if (origin) {
+      res.vary("Origin");
+    }
+    const normalizedOrigin = origin ? normalizeCorsOrigin(origin) : undefined;
+    if (normalizedOrigin && corsAllowed.has(normalizedOrigin)) {
+      res.setHeader("Access-Control-Allow-Origin", normalizedOrigin);
       res.setHeader(
         "Access-Control-Allow-Methods",
         "GET,POST,PUT,PATCH,DELETE,OPTIONS"
@@ -66,6 +66,43 @@ function createCorsMiddleware() {
     }
     next();
   };
+}
+
+/**
+ * Parses configured CORS origins into canonical scheme://host[:port] entries.
+ */
+function parseCorsOrigins(raw: string | undefined): Set<string> {
+  const origins = new Set<string>();
+  for (const entry of (raw ?? "").split(",")) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    if (trimmed === "*") {
+      throw new Error(
+        "CORS_ALLOWED_ORIGINS wildcard '*' is not supported; list explicit http(s) origins"
+      );
+    }
+
+    const normalized = normalizeCorsOrigin(trimmed);
+    if (normalized) {
+      origins.add(normalized);
+    } else {
+      console.warn(
+        `Ignoring malformed CORS origin in CORS_ALLOWED_ORIGINS: ${trimmed}`
+      );
+    }
+  }
+  return origins;
+}
+
+function normalizeCorsOrigin(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    if (url.pathname !== "/" || url.search || url.hash) return undefined;
+    return url.origin.toLowerCase();
+  } catch {
+    return undefined;
+  }
 }
 
 /** Adds the minimal hardening headers used by the original app. */
