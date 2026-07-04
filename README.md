@@ -73,6 +73,8 @@ agentpay-backend/
 - [Billing units and settlement semantics](docs/billing-units.md) explains
   stroops, `priceStroops`, `billedStroops`, `/api/v1/billing/*`, and why
   `POST /api/v1/settle` drains backend counters without moving funds.
+- [Security notes](docs/security.md) documents response-surface and export
+  hardening, including CSV formula-injection mitigation.
 
 ## Quickstart
 
