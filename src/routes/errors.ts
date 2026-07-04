@@ -4,6 +4,7 @@ import {
   type Request,
   type Response,
 } from "express";
+import { recordHttpError } from "../metrics.js";
 import { getRequestId } from "../types.js";
 
 /**
@@ -19,6 +20,7 @@ export function installErrorHandlers(app: Application): void {
   });
 
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+    recordHttpError(errorType(err));
     if (
       err &&
       typeof err === "object" &&
@@ -41,4 +43,17 @@ export function installErrorHandlers(app: Application): void {
       requestId: getRequestId(req),
     });
   });
+}
+
+function errorType(err: unknown): string {
+  if (err && typeof err === "object" && "type" in err) {
+    const type = (err as { type: unknown }).type;
+    if (typeof type === "string" && type.length > 0) {
+      return type;
+    }
+  }
+  if (err instanceof Error && err.name.length > 0) {
+    return err.name;
+  }
+  return "unknown";
 }
