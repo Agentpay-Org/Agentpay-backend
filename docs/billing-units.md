@@ -23,14 +23,13 @@ bill is `2,000,000` stroops, or `0.2 XLM`.
 Stellar amounts are precise to seven decimal places. Keeping backend prices and
 bills in integer stroops avoids floating-point rounding when usage counters are
 multiplied by prices. API consumers should treat `priceStroops`,
-`billedStroops`, and `totalStroops` as integer ledger units and convert to XLM
-only for display.
+`billedStroops`, `totalStroops`, and `disabledStroops` as integer ledger units
+and convert to XLM only for display.
 
-The current implementation stores counters and billing values as JavaScript
-numbers. `POST /api/v1/usage` clamps request counters at
-`Number.MAX_SAFE_INTEGER`. Future bigint-backed precision work should preserve
-the public stroops convention while avoiding number precision limits for very
-large counters and bills.
+`POST /api/v1/usage` keeps request counters as JSON numbers and clamps them at
+`Number.MAX_SAFE_INTEGER`. Billing amounts are computed with `BigInt` and
+serialized as decimal strings so values above JavaScript's safe integer range
+remain exact in JSON responses.
 
 ## Endpoint Semantics
 
@@ -40,14 +39,16 @@ Returns the current quote for one agent and service pair:
 
 - `requests`: outstanding recorded requests.
 - `priceStroops`: service price per request.
-- `billedStroops`: `requests * priceStroops`.
+- `billedStroops`: `requests * priceStroops`, serialized as a decimal string.
 
 This endpoint is read-only and does not change counters or transfer funds.
 
 ### `GET /api/v1/billing/total`
 
 Returns `totalStroops`, the sum of all outstanding usage counters multiplied by
-their service prices. This is also read-only and does not transfer funds.
+their service prices, serialized as a decimal string. Disabled priced usage is
+also returned as decimal-string `disabledStroops`. This is read-only and does
+not transfer funds.
 
 ### `POST /api/v1/settle`
 
@@ -58,6 +59,9 @@ The backend settle endpoint is an off-chain accounting operation. It:
 3. Sets the outstanding usage counter back to `0`.
 4. Returns `{ agent, serviceId, requests, priceStroops, billedStroops }`.
 5. Records a `usage.settled` audit event.
+
+`billedStroops` is a decimal string in the response. This is intentionally a
+breaking change from numeric JSON amounts to avoid silent precision loss.
 
 It does **not** move XLM, tokens, or any other on-chain value. A successful
 response means the backend drained its in-memory accumulator and quoted the

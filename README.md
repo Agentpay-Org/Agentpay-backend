@@ -189,7 +189,7 @@ BASE_URL=http://localhost:3001
      "serviceId": "embedding-v1",
      "requests": 10,
      "priceStroops": 25,
-     "billedStroops": 250
+     "billedStroops": "250"
    }
    ```
 
@@ -210,7 +210,7 @@ BASE_URL=http://localhost:3001
      "serviceId": "embedding-v1",
      "requests": 10,
      "priceStroops": 25,
-     "billedStroops": 250
+     "billedStroops": "250"
    }
    ```
 

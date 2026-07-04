@@ -26,8 +26,8 @@ void describe("billing total breakdown", () => {
 
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(res.body, {
-      totalStroops: 0,
-      disabledStroops: 0,
+      totalStroops: "0",
+      disabledStroops: "0",
       unpricedRequests: 0,
     });
   });
@@ -43,8 +43,8 @@ void describe("billing total breakdown", () => {
 
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(res.body, {
-      totalStroops: 130,
-      disabledStroops: 0,
+      totalStroops: "130",
+      disabledStroops: "0",
       unpricedRequests: 0,
     });
   });
@@ -61,8 +61,8 @@ void describe("billing total breakdown", () => {
 
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(res.body, {
-      totalStroops: 101,
-      disabledStroops: 66,
+      totalStroops: "101",
+      disabledStroops: "66",
       unpricedRequests: 0,
     });
   });
@@ -80,8 +80,8 @@ void describe("billing total breakdown", () => {
 
     assert.strictEqual(res.status, 200);
     assert.deepStrictEqual(res.body, {
-      totalStroops: 62,
-      disabledStroops: 10,
+      totalStroops: "62",
+      disabledStroops: "10",
       unpricedRequests: 8,
     });
   });

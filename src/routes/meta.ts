@@ -40,6 +40,7 @@ export function createMetaRouter(): Router {
             "Admin pause/unpause, API keys, webhooks, event log.",
             "Bulk usage + bulk services, CSV/JSON exports.",
             "Metadata + disabled flag per service.",
+            "Billing stroop amounts are returned as exact decimal strings.",
           ],
         },
       ],
@@ -86,8 +87,54 @@ export function createMetaRouter(): Router {
         "/api/v1/usage": { post: { summary: "Record usage" } },
         "/api/v1/usage/bulk": { post: { summary: "Batched record" } },
         "/api/v1/usage/{agent}/{serviceId}": { get: { summary: "Read accumulator" } },
-        "/api/v1/billing/{agent}/{serviceId}": { get: { summary: "Quote bill" } },
-        "/api/v1/settle": { post: { summary: "Drain & quote bill" } },
+        "/api/v1/billing/total": {
+          get: {
+            summary: "Quote protocol-wide outstanding bill",
+            responses: {
+              "200": {
+                description:
+                  "Billing totals with decimal-string stroop amounts for exact JSON precision.",
+                content: {
+                  "application/json": {
+                    schema: { $ref: "#/components/schemas/BillingTotal" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        "/api/v1/billing/{agent}/{serviceId}": {
+          get: {
+            summary: "Quote bill",
+            responses: {
+              "200": {
+                description:
+                  "Pair billing quote with billedStroops serialized as a decimal string.",
+                content: {
+                  "application/json": {
+                    schema: { $ref: "#/components/schemas/BillingQuote" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        "/api/v1/settle": {
+          post: {
+            summary: "Drain & quote bill",
+            responses: {
+              "200": {
+                description:
+                  "Settlement quote with billedStroops serialized as a decimal string.",
+                content: {
+                  "application/json": {
+                    schema: { $ref: "#/components/schemas/BillingQuote" },
+                  },
+                },
+              },
+            },
+          },
+        },
         "/api/v1/api-keys": {
           get: { summary: "List api keys" },
           post: { summary: "Create api key" },
@@ -101,6 +148,51 @@ export function createMetaRouter(): Router {
         "/api/v1/admin/pause": { post: { summary: "Pause writes" } },
         "/api/v1/admin/unpause": { post: { summary: "Resume" } },
         "/api/v1/admin/status": { get: { summary: "Read pause flag" } },
+      },
+      components: {
+        schemas: {
+          BillingQuote: {
+            type: "object",
+            properties: {
+              agent: { type: "string" },
+              serviceId: { type: "string" },
+              requests: { type: "integer", minimum: 0 },
+              priceStroops: { type: "integer", minimum: 0 },
+              billedStroops: {
+                type: "string",
+                pattern: "^[0-9]+$",
+                description:
+                  "Exact decimal stroop amount. String-typed to avoid JSON number precision loss.",
+              },
+            },
+            required: [
+              "agent",
+              "serviceId",
+              "requests",
+              "priceStroops",
+              "billedStroops",
+            ],
+          },
+          BillingTotal: {
+            type: "object",
+            properties: {
+              totalStroops: {
+                type: "string",
+                pattern: "^[0-9]+$",
+                description:
+                  "Exact decimal stroop total. String-typed to avoid JSON number precision loss.",
+              },
+              disabledStroops: {
+                type: "string",
+                pattern: "^[0-9]+$",
+                description:
+                  "Exact decimal stroop total for disabled services included in billing totals.",
+              },
+              unpricedRequests: { type: "integer", minimum: 0 },
+            },
+            required: ["totalStroops", "disabledStroops", "unpricedRequests"],
+          },
+        },
       },
     });
   });

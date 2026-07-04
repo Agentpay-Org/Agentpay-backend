@@ -54,7 +54,7 @@ void describe("usage router", () => {
     assert.strictEqual(quote.status, 200);
     assert.strictEqual(quote.body.requests, 4);
     assert.strictEqual(quote.body.priceStroops, 25);
-    assert.strictEqual(quote.body.billedStroops, 100);
+    assert.strictEqual(quote.body.billedStroops, "100");
   });
 
   void it("covers bulk usage, exports, agent rollups, settlement, and disabled services", async () => {
@@ -87,7 +87,7 @@ void describe("usage router", () => {
 
     const billingTotal = await request(app).get("/api/v1/billing/total");
     assert.strictEqual(billingTotal.status, 200);
-    assert.strictEqual(billingTotal.body.totalStroops, 50);
+    assert.strictEqual(billingTotal.body.totalStroops, "50");
 
     const agents = await request(app).get("/api/v1/agents");
     assert.strictEqual(agents.status, 200);
@@ -108,7 +108,7 @@ void describe("usage router", () => {
       .post("/api/v1/settle")
       .send({ agent: "agent-bulk", serviceId: "svc-bulk" });
     assert.strictEqual(settled.status, 200);
-    assert.strictEqual(settled.body.billedStroops, 50);
+    assert.strictEqual(settled.body.billedStroops, "50");
 
     servicesDisabled.add("svc-disabled");
     const disabled = await request(app)

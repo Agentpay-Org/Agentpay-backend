@@ -7,6 +7,7 @@ import {
   usageStore,
 } from "../store/state.js";
 import { getRequestId } from "../types.js";
+import { addStroops, multiplyStroops } from "../util/stroops.js";
 
 type BulkUsageResult = {
   index: number;
@@ -16,8 +17,8 @@ type BulkUsageResult = {
 };
 
 type BillingTotalBreakdown = {
-  totalStroops: number;
-  disabledStroops: number;
+  totalStroops: string;
+  disabledStroops: string;
   unpricedRequests: number;
 };
 
@@ -156,8 +157,8 @@ export function createUsageRouter(): Router {
    */
   router.get("/api/v1/billing/total", (_req, res: Response) => {
     const breakdown: BillingTotalBreakdown = {
-      totalStroops: 0,
-      disabledStroops: 0,
+      totalStroops: "0",
+      disabledStroops: "0",
       unpricedRequests: 0,
     };
 
@@ -169,10 +170,13 @@ export function createUsageRouter(): Router {
         continue;
       }
 
-      const billedStroops = requests * service.priceStroops;
-      breakdown.totalStroops += billedStroops;
+      const billedStroops = multiplyStroops(requests, service.priceStroops);
+      breakdown.totalStroops = addStroops(breakdown.totalStroops, billedStroops);
       if (servicesDisabled.has(serviceId)) {
-        breakdown.disabledStroops += billedStroops;
+        breakdown.disabledStroops = addStroops(
+          breakdown.disabledStroops,
+          billedStroops
+        );
       }
     }
     res.json(breakdown);
@@ -187,7 +191,7 @@ export function createUsageRouter(): Router {
       serviceId,
       requests,
       priceStroops: price,
-      billedStroops: requests * price,
+      billedStroops: multiplyStroops(requests, price),
     });
   });
 
@@ -205,7 +209,7 @@ export function createUsageRouter(): Router {
     const key = usageKey(agent, serviceId);
     const requests = usageStore.get(key) ?? 0;
     const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
-    const billedStroops = requests * price;
+    const billedStroops = multiplyStroops(requests, price);
     usageStore.set(key, 0);
     recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
     res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
