@@ -5,13 +5,7 @@ import express, {
   type Request,
   type Response,
 } from "express";
-import {
-  apiKeyStore,
-  pauseState,
-  rateBuckets,
-  RATE_LIMIT_PER_WINDOW,
-  RATE_LIMIT_WINDOW_MS,
-} from "../store/state.js";
+import { apiKeyStore, config, pauseState, rateBuckets } from "../store/state.js";
 import type { AgentPayRequest } from "../types.js";
 
 /**
@@ -120,19 +114,22 @@ function pauseGuardMiddleware(req: Request, res: Response, next: NextFunction): 
   });
 }
 
-/** In-process IP rate limiter matching the original 60/min behavior. */
+/** In-process IP rate limiter backed by the live runtime config. */
 function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (process.env.NODE_ENV === "test") return next();
+  const rateLimitWindowMs = config.rateLimitWindowMs;
+  const rateLimitPerWindow = config.rateLimitPerWindow;
   const ip = req.ip ?? req.socket.remoteAddress ?? "unknown";
   const now = Date.now();
-  const bucket = (rateBuckets.get(ip) ?? []).filter(
-    (t) => now - t < RATE_LIMIT_WINDOW_MS
-  );
-  if (bucket.length >= RATE_LIMIT_PER_WINDOW) {
-    res.setHeader("Retry-After", "60");
+  const bucket = (rateBuckets.get(ip) ?? []).filter((t) => now - t < rateLimitWindowMs);
+  if (bucket.length >= rateLimitPerWindow) {
+    res.setHeader(
+      "Retry-After",
+      String(Math.max(1, Math.ceil(rateLimitWindowMs / 1000)))
+    );
     res.status(429).json({
       error: "rate_limited",
-      message: `more than ${RATE_LIMIT_PER_WINDOW} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s`,
+      message: `more than ${rateLimitPerWindow} requests per ${rateLimitWindowMs / 1000}s`,
       requestId: (req as AgentPayRequest).id,
     });
     return;

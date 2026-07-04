@@ -12,10 +12,13 @@ export type WebhookRecord = { url: string; events: string[]; createdAt: number }
 /** Mirrors the on-chain pause flag for write-gated endpoints. */
 export const pauseState = { paused: false };
 
+const DEFAULT_RATE_LIMIT_PER_WINDOW = 60;
+const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
+
 /** Runtime-tunable in-memory configuration returned by /api/v1/config. */
 export const config: Record<string, number> = {
-  rateLimitPerWindow: 60,
-  rateLimitWindowMs: 60_000,
+  rateLimitPerWindow: DEFAULT_RATE_LIMIT_PER_WINDOW,
+  rateLimitWindowMs: DEFAULT_RATE_LIMIT_WINDOW_MS,
   bulkMaxItems: 100,
   eventLogCap: 10_000,
 };
@@ -43,6 +46,3 @@ export const webhookStore = new Map<string, WebhookRecord>();
 
 /** Rate-limiter windows keyed by source IP. */
 export const rateBuckets = new Map<string, number[]>();
-
-export const RATE_LIMIT_PER_WINDOW = 60;
-export const RATE_LIMIT_WINDOW_MS = 60_000;
