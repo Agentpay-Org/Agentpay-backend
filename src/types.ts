@@ -6,7 +6,9 @@ import type { Request } from "express";
  */
 export type AgentPayRequest = Request & {
   id?: string;
-  apiKey?: string;
+  apiKeyHash?: string;
+  apiKeyPrefix?: string;
+  adminApiKey?: true;
 };
 
 /**

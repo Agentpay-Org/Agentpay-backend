@@ -5,7 +5,7 @@
  * for the lifetime of the Node process and resets on restart.
  */
 
-export type ApiKeyRecord = { label: string; createdAt: number };
+export type ApiKeyRecord = { label: string; createdAt: number; prefix: string };
 export type ServiceMetadataDto = { description: string; owner: string };
 export type WebhookRecord = { url: string; events: string[]; createdAt: number };
 
@@ -20,7 +20,7 @@ export const config: Record<string, number> = {
   eventLogCap: 10_000,
 };
 
-/** Opaque API keys keyed by full secret token. */
+/** Opaque API keys keyed by SHA-256 hash, never by the live secret token. */
 export const apiKeyStore = new Map<string, ApiKeyRecord>();
 
 /** Outstanding usage counters keyed by `${agent}::${serviceId}`. */

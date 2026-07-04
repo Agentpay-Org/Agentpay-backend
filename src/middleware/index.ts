@@ -5,6 +5,7 @@ import express, {
   type Request,
   type Response,
 } from "express";
+import { timingSafeEqualSecret, verifyApiKey } from "../auth/apiKeys.js";
 import {
   apiKeyStore,
   pauseState,
@@ -23,6 +24,7 @@ export function installPreRouteMiddleware(app: Application): void {
   app.use(express.json({ limit: "100kb" }));
   app.use(securityHeadersMiddleware);
   app.use(requestIdMiddleware);
+  app.use(apiKeyAuthMiddleware);
 }
 
 /**
@@ -30,7 +32,6 @@ export function installPreRouteMiddleware(app: Application): void {
  * the main API routes.
  */
 export function installRequestStateMiddleware(app: Application): void {
-  app.use(apiKeyRecognitionMiddleware);
   app.use(pauseGuardMiddleware);
   app.use(rateLimitMiddleware);
   app.use(requestTimerMiddleware);
@@ -94,17 +95,68 @@ function requestIdMiddleware(req: Request, res: Response, next: NextFunction): v
   next();
 }
 
-/** Recognizes known API keys without requiring them. */
-function apiKeyRecognitionMiddleware(
-  req: Request,
-  _res: Response,
-  next: NextFunction
-): void {
+/** Recognizes tenant keys and enforces them on writes when REQUIRE_API_KEY=true. */
+function apiKeyAuthMiddleware(req: Request, res: Response, next: NextFunction): void {
   const supplied = req.header("x-api-key");
-  if (typeof supplied === "string" && apiKeyStore.has(supplied)) {
-    (req as AgentPayRequest).apiKey = supplied;
+  const tenantKey = verifyApiKey(supplied, apiKeyStore);
+  if (tenantKey) {
+    (req as AgentPayRequest).apiKeyHash = tenantKey.hash;
+    (req as AgentPayRequest).apiKeyPrefix = tenantKey.prefix;
   }
+
+  if (!requiresApiKey()) {
+    next();
+    return;
+  }
+
+  const method = req.method.toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
+    next();
+    return;
+  }
+
+  if (req.path.startsWith("/api/v1/admin/") || isApiKeyManagementPath(req.path)) {
+    if (isValidAdminKey(supplied)) {
+      (req as AgentPayRequest).adminApiKey = true;
+      next();
+      return;
+    }
+    sendUnauthorized(res, req, "valid ADMIN_API_KEY required for privileged writes");
+    return;
+  }
+
+  if (!tenantKey) {
+    sendUnauthorized(res, req, "valid X-API-Key required for write request");
+    return;
+  }
+
   next();
+}
+
+function requiresApiKey(): boolean {
+  return process.env.REQUIRE_API_KEY?.toLowerCase() === "true";
+}
+
+function isApiKeyManagementPath(path: string): boolean {
+  return path === "/api/v1/api-keys" || path.startsWith("/api/v1/api-keys/");
+}
+
+function isValidAdminKey(supplied: string | undefined): boolean {
+  const adminKey = process.env.ADMIN_API_KEY;
+  return (
+    typeof supplied === "string" &&
+    typeof adminKey === "string" &&
+    adminKey.length > 0 &&
+    timingSafeEqualSecret(supplied, adminKey)
+  );
+}
+
+function sendUnauthorized(res: Response, req: Request, message: string): void {
+  res.status(401).json({
+    error: "unauthorized",
+    message,
+    requestId: (req as AgentPayRequest).id,
+  });
 }
 
 /** Blocks state-changing requests while the backend is paused. */
