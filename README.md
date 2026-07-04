@@ -95,6 +95,26 @@ Set a shell variable for the local base URL:
 BASE_URL=http://localhost:3001
 ```
 
+### Running behind a proxy
+
+By default the backend does not trust `X-Forwarded-For`, so spoofed proxy
+headers cannot change the rate-limit key. When the service is deployed behind a
+load balancer or reverse proxy that you control, set `TRUST_PROXY` to the number
+of trusted proxy hops:
+
+```bash
+TRUST_PROXY=1 npm start
+```
+
+Truthy values such as `true`, `yes`, and `on` are treated as one trusted hop.
+Leave `TRUST_PROXY` unset, `0`, or `false` for direct-to-node deployments.
+
+Rate limiting prefers a recognized `X-API-Key` over the client IP, so two valid
+API-key tenants behind the same NAT do not throttle each other. Requests without
+a recognized key continue to use Express' trusted client IP. Only enable
+`TRUST_PROXY` behind a proxy that strips or overwrites inbound
+`X-Forwarded-For`; otherwise clients can choose the address Express sees.
+
 1. Register a billable service.
 
    ```bash

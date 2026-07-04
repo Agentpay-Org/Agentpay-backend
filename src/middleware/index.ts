@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import express, {
   type Application,
   type NextFunction,
@@ -23,6 +23,44 @@ export function installPreRouteMiddleware(app: Application): void {
   app.use(express.json({ limit: "100kb" }));
   app.use(securityHeadersMiddleware);
   app.use(requestIdMiddleware);
+}
+
+/**
+ * Converts TRUST_PROXY into Express' hop-count based trust proxy setting.
+ * Boolean-like truthy values intentionally map to one trusted proxy hop.
+ */
+export function resolveTrustProxySetting(
+  raw = process.env.TRUST_PROXY
+): false | number {
+  if (raw === undefined) return false;
+  const normalized = raw.trim().toLowerCase();
+  if (
+    normalized === "" ||
+    normalized === "false" ||
+    normalized === "0" ||
+    normalized === "off" ||
+    normalized === "no"
+  ) {
+    return false;
+  }
+  if (
+    normalized === "true" ||
+    normalized === "1" ||
+    normalized === "on" ||
+    normalized === "yes"
+  ) {
+    return 1;
+  }
+  const hopCount = Number(normalized);
+  if (Number.isInteger(hopCount) && hopCount > 0) {
+    return hopCount;
+  }
+  return false;
+}
+
+/** Applies the process trust-proxy setting before request middleware runs. */
+export function configureTrustProxy(app: Application): void {
+  app.set("trust proxy", resolveTrustProxySetting());
 }
 
 /**
@@ -120,12 +158,25 @@ function pauseGuardMiddleware(req: Request, res: Response, next: NextFunction): 
   });
 }
 
-/** In-process IP rate limiter matching the original 60/min behavior. */
+/**
+ * Builds a stable rate-limit key from the authenticated API key when present,
+ * otherwise falling back to Express' trusted client IP.
+ */
+export function deriveRateLimitKey(req: Request): string {
+  const apiKey = (req as AgentPayRequest).apiKey;
+  if (apiKey) {
+    const digest = createHash("sha256").update(apiKey).digest("hex");
+    return `api-key:${digest}`;
+  }
+  return `ip:${req.ip ?? req.socket.remoteAddress ?? "unknown"}`;
+}
+
+/** In-process rate limiter keyed by API key or trusted client IP. */
 function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (process.env.NODE_ENV === "test") return next();
-  const ip = req.ip ?? req.socket.remoteAddress ?? "unknown";
+  const key = deriveRateLimitKey(req);
   const now = Date.now();
-  const bucket = (rateBuckets.get(ip) ?? []).filter(
+  const bucket = (rateBuckets.get(key) ?? []).filter(
     (t) => now - t < RATE_LIMIT_WINDOW_MS
   );
   if (bucket.length >= RATE_LIMIT_PER_WINDOW) {
@@ -138,7 +189,7 @@ function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): v
     return;
   }
   bucket.push(now);
-  rateBuckets.set(ip, bucket);
+  rateBuckets.set(key, bucket);
   next();
 }
 

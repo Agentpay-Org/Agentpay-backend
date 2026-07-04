@@ -1,5 +1,6 @@
 import express from "express";
 import {
+  configureTrustProxy,
   installPreRouteMiddleware,
   installRequestStateMiddleware,
 } from "./middleware/index.js";
@@ -22,6 +23,7 @@ const PORT = process.env.PORT ?? 3001;
 function createApp() {
   const app = express();
 
+  configureTrustProxy(app);
   installPreRouteMiddleware(app);
 
   app.use(createAdminRouter());
