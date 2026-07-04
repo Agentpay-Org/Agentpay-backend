@@ -39,6 +39,19 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
    ```
    Server runs at `http://localhost:3001`. Try `GET /health` and `GET /api/v1/version`.
 
+## Configuration
+
+The backend reads these environment variables at runtime. For local development,
+copy [`.env.example`](.env.example) to `.env` and adjust values as needed. The
+real `.env` files stay ignored by git; `.env.example` contains only safe
+placeholders.
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `PORT` | `3001` | HTTP listen port used by `src/index.ts` when the server starts. |
+| `CORS_ALLOWED_ORIGINS` | empty | Comma-separated allowlist for browser CORS origins. When empty, the backend does not emit `Access-Control-Allow-Origin`; when an incoming `Origin` exactly matches an entry, the middleware echoes that origin and related CORS headers. |
+| `NODE_ENV` | unset | Runtime mode. Set to `test` only for automated tests; in test mode the in-process rate limiter is skipped and per-request JSON logs are suppressed. |
+
 ## Project structure
 
 ```
