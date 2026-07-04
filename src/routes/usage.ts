@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { isValidAgentId, isValidServiceId } from "../identifiers.js";
 import { recordEvent } from "../events.js";
 import {
   servicesDisabled,
@@ -21,6 +22,28 @@ type BillingTotalBreakdown = {
   unpricedRequests: number;
 };
 
+function invalidIdentifierMessage(kind: "agent" | "serviceId"): string {
+  const max = kind === "agent" ? 256 : 128;
+  return `${kind} must be 1-${max} chars using only letters, numbers, dot, underscore, or hyphen`;
+}
+
+function rejectInvalidPathIdentifier(
+  req: Request,
+  res: Response,
+  kind: "agent" | "serviceId",
+  value: unknown
+): boolean {
+  const valid = kind === "agent" ? isValidAgentId(value) : isValidServiceId(value);
+  if (valid) return false;
+
+  res.status(400).json({
+    error: "invalid_request",
+    message: invalidIdentifierMessage(kind),
+    requestId: getRequestId(req),
+  });
+  return true;
+}
+
 /**
  * Builds usage, billing, settlement, and agent rollup routes.
  */
@@ -31,22 +54,18 @@ export function createUsageRouter(): Router {
     const { agent, serviceId, requests } = req.body ?? {};
     const requestId = getRequestId(req);
 
-    if (typeof agent !== "string" || agent.length === 0 || agent.length > 256) {
+    if (!isValidAgentId(agent)) {
       res.status(400).json({
         error: "invalid_request",
-        message: "agent must be a non-empty string up to 256 chars",
+        message: invalidIdentifierMessage("agent"),
         requestId,
       });
       return;
     }
-    if (
-      typeof serviceId !== "string" ||
-      serviceId.length === 0 ||
-      serviceId.length > 128
-    ) {
+    if (!isValidServiceId(serviceId)) {
       res.status(400).json({
         error: "invalid_request",
-        message: "serviceId must be a non-empty string up to 128 chars",
+        message: invalidIdentifierMessage("serviceId"),
         requestId,
       });
       return;
@@ -93,8 +112,8 @@ export function createUsageRouter(): Router {
     for (let i = 0; i < items.length; i++) {
       const { agent, serviceId, requests } = items[i] ?? {};
       if (
-        typeof agent !== "string" ||
-        typeof serviceId !== "string" ||
+        !isValidAgentId(agent) ||
+        !isValidServiceId(serviceId) ||
         typeof requests !== "number" ||
         !Number.isInteger(requests) ||
         requests <= 0
@@ -122,6 +141,12 @@ export function createUsageRouter(): Router {
 
   router.get("/api/v1/usage/:agent/:serviceId", (req: Request, res: Response) => {
     const { agent, serviceId } = req.params;
+    if (
+      rejectInvalidPathIdentifier(req, res, "agent", agent) ||
+      rejectInvalidPathIdentifier(req, res, "serviceId", serviceId)
+    ) {
+      return;
+    }
     const total = usageStore.get(usageKey(agent, serviceId)) ?? 0;
     res.json({ agent, serviceId, total });
   });
@@ -180,6 +205,12 @@ export function createUsageRouter(): Router {
 
   router.get("/api/v1/billing/:agent/:serviceId", (req: Request, res: Response) => {
     const { agent, serviceId } = req.params;
+    if (
+      rejectInvalidPathIdentifier(req, res, "agent", agent) ||
+      rejectInvalidPathIdentifier(req, res, "serviceId", serviceId)
+    ) {
+      return;
+    }
     const requests = usageStore.get(usageKey(agent, serviceId)) ?? 0;
     const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
     res.json({
@@ -194,10 +225,10 @@ export function createUsageRouter(): Router {
   router.post("/api/v1/settle", (req: Request, res: Response) => {
     const { agent, serviceId } = req.body ?? {};
     const requestId = getRequestId(req);
-    if (typeof agent !== "string" || typeof serviceId !== "string") {
+    if (!isValidAgentId(agent) || !isValidServiceId(serviceId)) {
       res.status(400).json({
         error: "invalid_request",
-        message: "agent and serviceId are required strings",
+        message: "agent and serviceId must be safe identifiers",
         requestId,
       });
       return;
@@ -224,6 +255,7 @@ export function createUsageRouter(): Router {
 
   router.get("/api/v1/agents/:agent/total", (req: Request, res: Response) => {
     const { agent } = req.params;
+    if (rejectInvalidPathIdentifier(req, res, "agent", agent)) return;
     const prefix = `${agent}::`;
     let total = 0;
     for (const [key, n] of usageStore.entries()) {
@@ -234,6 +266,7 @@ export function createUsageRouter(): Router {
 
   router.get("/api/v1/agents/:agent/usage", (req: Request, res: Response) => {
     const { agent } = req.params;
+    if (rejectInvalidPathIdentifier(req, res, "agent", agent)) return;
     const prefix = `${agent}::`;
     const items: { serviceId: string; total: number }[] = [];
     for (const [key, total] of usageStore.entries()) {

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
+import { isValidServiceId } from "../identifiers.js";
 import {
   servicesDisabled,
   servicesMetadata,
@@ -15,6 +16,25 @@ type ServiceReadShape = {
   description?: string;
   owner?: string;
 };
+
+function invalidServiceIdMessage(): string {
+  return "serviceId must be 1-128 chars using only letters, numbers, dot, underscore, or hyphen";
+}
+
+function rejectInvalidServicePath(
+  req: Request,
+  res: Response,
+  serviceId: unknown
+): boolean {
+  if (isValidServiceId(serviceId)) return false;
+
+  res.status(400).json({
+    error: "invalid_request",
+    message: invalidServiceIdMessage(),
+    requestId: getRequestId(req),
+  });
+  return true;
+}
 
 /**
  * Builds the public read shape for service detail and list endpoints.
@@ -56,9 +76,7 @@ export function createServicesRouter(): Router {
       (it: { serviceId?: unknown; priceStroops?: unknown }, i: number) => {
         const { serviceId, priceStroops } = it ?? {};
         if (
-          typeof serviceId !== "string" ||
-          serviceId.length === 0 ||
-          serviceId.length > 128 ||
+          !isValidServiceId(serviceId) ||
           typeof priceStroops !== "number" ||
           !Number.isInteger(priceStroops) ||
           priceStroops < 0
@@ -80,14 +98,10 @@ export function createServicesRouter(): Router {
   router.post("/api/v1/services", (req: Request, res: Response) => {
     const { serviceId, priceStroops } = req.body ?? {};
     const requestId = getRequestId(req);
-    if (
-      typeof serviceId !== "string" ||
-      serviceId.length === 0 ||
-      serviceId.length > 128
-    ) {
+    if (!isValidServiceId(serviceId)) {
       res.status(400).json({
         error: "invalid_request",
-        message: "serviceId must be a non-empty string up to 128 chars",
+        message: invalidServiceIdMessage(),
         requestId,
       });
       return;
@@ -111,6 +125,7 @@ export function createServicesRouter(): Router {
 
   router.get("/api/v1/services/:serviceId/usage", (req: Request, res: Response) => {
     const { serviceId } = req.params;
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
     const suffix = `::${serviceId}`;
     let total = 0;
     let agents = 0;
@@ -127,6 +142,7 @@ export function createServicesRouter(): Router {
     "/api/v1/services/:serviceId/agents/top",
     (req: Request, res: Response) => {
       const { serviceId } = req.params;
+      if (rejectInvalidServicePath(req, res, serviceId)) return;
       const limit = Math.min(
         100,
         Math.max(1, Number((req.query.limit as string) ?? 10))
@@ -145,6 +161,7 @@ export function createServicesRouter(): Router {
 
   router.get("/api/v1/services/:serviceId/agents", (req: Request, res: Response) => {
     const { serviceId } = req.params;
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
     const suffix = `::${serviceId}`;
     const items: { agent: string; total: number }[] = [];
     for (const [key, total] of usageStore.entries()) {
@@ -158,6 +175,7 @@ export function createServicesRouter(): Router {
   /** Reads one service with its disabled state and optional metadata. */
   router.get("/api/v1/services/:serviceId", (req: Request, res: Response) => {
     const { serviceId } = req.params;
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
     const meta = servicesStore.get(serviceId);
     if (!meta) {
       res.status(404).json({
@@ -173,6 +191,7 @@ export function createServicesRouter(): Router {
   router.put("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
     const { serviceId } = req.params;
     const requestId = getRequestId(req);
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
     if (!servicesStore.has(serviceId)) {
       res.status(404).json({
         error: "not_found",
@@ -204,6 +223,7 @@ export function createServicesRouter(): Router {
 
   router.get("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
     const { serviceId } = req.params;
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
     const meta = servicesMetadata.get(serviceId);
     if (!meta) {
       res.status(404).json({
@@ -221,6 +241,7 @@ export function createServicesRouter(): Router {
     (req: Request, res: Response) => {
       const { serviceId } = req.params;
       const requestId = getRequestId(req);
+      if (rejectInvalidServicePath(req, res, serviceId)) return;
       if (!servicesStore.has(serviceId)) {
         res.status(404).json({
           error: "not_found",
@@ -247,6 +268,7 @@ export function createServicesRouter(): Router {
   router.patch("/api/v1/services/:serviceId/price", (req: Request, res: Response) => {
     const { serviceId } = req.params;
     const requestId = getRequestId(req);
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
     const meta = servicesStore.get(serviceId);
     if (!meta) {
       res.status(404).json({
@@ -276,6 +298,7 @@ export function createServicesRouter(): Router {
 
   router.delete("/api/v1/services/:serviceId", (req: Request, res: Response) => {
     const { serviceId } = req.params;
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
     if (!servicesStore.has(serviceId)) {
       res.status(404).json({
         error: "not_found",

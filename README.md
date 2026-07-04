@@ -74,6 +74,20 @@ agentpay-backend/
   stroops, `priceStroops`, `billedStroops`, `/api/v1/billing/*`, and why
   `POST /api/v1/settle` drains backend counters without moving funds.
 
+## Identifier Rules
+
+`agent` and `serviceId` values are used in in-memory keys, path parameters,
+events, and exports, so they are restricted to unambiguous ASCII identifiers.
+Use only letters, numbers, `.`, `_`, and `-`.
+
+| Field       | Max length | Examples                |
+| ----------- | ---------- | ----------------------- |
+| `agent`     | 256 chars  | `agent_1`, `team.alpha` |
+| `serviceId` | 128 chars  | `svc-1`, `embed.v2`     |
+
+Values containing the internal `::` separator, whitespace, commas, newlines, or
+control characters are rejected with `400 invalid_request`.
+
 ## Quickstart
 
 Start a local backend on `http://localhost:3001` with the checked-in
