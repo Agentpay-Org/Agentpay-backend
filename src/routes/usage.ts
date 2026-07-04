@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
+import { createIdempotencyMiddleware } from "../middleware/idempotency.js";
 import {
   servicesDisabled,
   servicesStore,
@@ -26,8 +27,9 @@ type BillingTotalBreakdown = {
  */
 export function createUsageRouter(): Router {
   const router = Router();
+  const idempotency = createIdempotencyMiddleware();
 
-  router.post("/api/v1/usage", (req: Request, res: Response) => {
+  router.post("/api/v1/usage", idempotency, (req: Request, res: Response) => {
     const { agent, serviceId, requests } = req.body ?? {};
     const requestId = getRequestId(req);
 
@@ -78,7 +80,7 @@ export function createUsageRouter(): Router {
     res.status(201).json({ agent, serviceId, total });
   });
 
-  router.post("/api/v1/usage/bulk", (req: Request, res: Response) => {
+  router.post("/api/v1/usage/bulk", idempotency, (req: Request, res: Response) => {
     const requestId = getRequestId(req);
     const { items } = req.body ?? {};
     if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
@@ -191,7 +193,7 @@ export function createUsageRouter(): Router {
     });
   });
 
-  router.post("/api/v1/settle", (req: Request, res: Response) => {
+  router.post("/api/v1/settle", idempotency, (req: Request, res: Response) => {
     const { agent, serviceId } = req.body ?? {};
     const requestId = getRequestId(req);
     if (typeof agent !== "string" || typeof serviceId !== "string") {
