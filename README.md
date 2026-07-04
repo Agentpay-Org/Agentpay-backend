@@ -89,6 +89,10 @@ API key for the metering flow until API-key enforcement lands. Add your own
 `X-Request-Id` header when you want to correlate client logs with backend
 responses. The backend echoes the value on success and structured errors.
 
+Structured logs default to `info` outside tests and `silent` in
+`NODE_ENV=test`. Set `LOG_LEVEL` to one of `fatal`, `error`, `warn`, `info`,
+`debug`, `trace`, or `silent` to override the default.
+
 Set a shell variable for the local base URL:
 
 ```bash

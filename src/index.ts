@@ -1,5 +1,12 @@
 import express from "express";
 import {
+  logger,
+  logForcedShutdown,
+  logServerCloseError,
+  logServerStarted,
+  logShutdownSignal,
+} from "./logger.js";
+import {
   installPreRouteMiddleware,
   installRequestStateMiddleware,
 } from "./middleware/index.js";
@@ -46,20 +53,20 @@ const app = createApp();
 
 if (process.argv[1]?.endsWith("index.js") || process.argv[1]?.endsWith("index.ts")) {
   const server = app.listen(PORT, () => {
-    console.log(`AgentPay backend listening on port ${PORT}`);
+    logServerStarted(logger, PORT);
   });
 
   const shutdown = (signal: string) => {
-    console.log(`Received ${signal}, draining…`);
+    logShutdownSignal(logger, signal);
     server.close((err) => {
       if (err) {
-        console.error("server.close error:", err);
+        logServerCloseError(logger, err);
         process.exit(1);
       }
       process.exit(0);
     });
     setTimeout(() => {
-      console.error("Forced exit after 10s drain timeout");
+      logForcedShutdown(logger, 10_000);
       process.exit(1);
     }, 10_000).unref();
   };

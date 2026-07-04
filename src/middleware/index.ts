@@ -5,6 +5,7 @@ import express, {
   type Request,
   type Response,
 } from "express";
+import { logger, logRequestCompletion } from "../logger.js";
 import {
   apiKeyStore,
   pauseState,
@@ -150,17 +151,13 @@ function requestTimerMiddleware(req: Request, res: Response, next: NextFunction)
     if (!res.headersSent) {
       res.setHeader("Server-Timing", `app;dur=${ms.toFixed(1)}`);
     }
-    if (process.env.NODE_ENV !== "test") {
-      console.log(
-        JSON.stringify({
-          requestId: (req as AgentPayRequest).id,
-          method: req.method,
-          path: req.path,
-          status: res.statusCode,
-          durationMs: Math.round(ms * 10) / 10,
-        })
-      );
-    }
+    logRequestCompletion(logger, {
+      requestId: (req as AgentPayRequest).id,
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      durationMs: Math.round(ms * 10) / 10,
+    });
   });
   next();
 }
