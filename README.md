@@ -74,6 +74,21 @@ agentpay-backend/
   stroops, `priceStroops`, `billedStroops`, `/api/v1/billing/*`, and why
   `POST /api/v1/settle` drains backend counters without moving funds.
 
+## Server Timeouts
+
+The HTTP listener configures request, header, keep-alive, and inactive socket
+timeouts to bound slow or hung connections:
+
+| Environment variable   | Default | Description                              |
+| ---------------------- | ------- | ---------------------------------------- |
+| `REQUEST_TIMEOUT_MS`   | `30000` | Maximum time for a complete request.     |
+| `HEADERS_TIMEOUT_MS`   | `10000` | Maximum time to receive request headers. |
+| `KEEPALIVE_TIMEOUT_MS` | `5000`  | Idle keep-alive socket lifetime.         |
+
+Invalid, zero, negative, or decimal override values fall back to the defaults.
+`HEADERS_TIMEOUT_MS` is raised to at least `KEEPALIVE_TIMEOUT_MS` so keep-alive
+reuse does not violate Node's timeout invariant.
+
 ## Quickstart
 
 Start a local backend on `http://localhost:3001` with the checked-in
