@@ -5,6 +5,7 @@ import express, {
   type Request,
   type Response,
 } from "express";
+import helmet from "helmet";
 import {
   apiKeyStore,
   pauseState,
@@ -22,6 +23,7 @@ export function installPreRouteMiddleware(app: Application): void {
   app.use(createCorsMiddleware());
   app.use(express.json({ limit: "100kb" }));
   app.use(securityHeadersMiddleware);
+  app.use(permissionsPolicyMiddleware);
   app.use(requestIdMiddleware);
 }
 
@@ -68,19 +70,46 @@ function createCorsMiddleware() {
   };
 }
 
-/** Adds the minimal hardening headers used by the original app. */
-function securityHeadersMiddleware(
+/**
+ * Helmet owns the standard response hardening header set. The CSP is tuned for
+ * this JSON API surface: no document subresources are expected, framing is
+ * denied, and explicit script/style directives avoid inline or eval fallbacks.
+ */
+const securityHeadersMiddleware = helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'none'"],
+      baseUri: ["'none'"],
+      connectSrc: ["'none'"],
+      fontSrc: ["'none'"],
+      formAction: ["'none'"],
+      frameAncestors: ["'none'"],
+      imgSrc: ["'none'"],
+      manifestSrc: ["'none'"],
+      mediaSrc: ["'none'"],
+      objectSrc: ["'none'"],
+      scriptSrc: ["'none'"],
+      scriptSrcAttr: ["'none'"],
+      styleSrc: ["'none'"],
+      workerSrc: ["'none'"],
+    },
+  },
+  referrerPolicy: { policy: "no-referrer" },
+  strictTransportSecurity: {
+    maxAge: 63_072_000,
+    includeSubDomains: true,
+    preload: true,
+  },
+  xFrameOptions: { action: "deny" },
+});
+
+/** Keeps the API's explicit browser feature restrictions. */
+function permissionsPolicyMiddleware(
   _req: Request,
   res: Response,
   next: NextFunction
 ): void {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Referrer-Policy", "no-referrer");
-  res.setHeader(
-    "Strict-Transport-Security",
-    "max-age=63072000; includeSubDomains; preload"
-  );
   res.setHeader("Permissions-Policy", "geolocation=(), camera=(), microphone=()");
   next();
 }
