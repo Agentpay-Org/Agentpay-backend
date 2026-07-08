@@ -1,11 +1,14 @@
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
 import {
+  parseUsageKey,
+  serviceKey,
   servicesDisabled,
   servicesStore,
   usageKey,
   usageStore,
 } from "../store/state.js";
+import { resolveTenantId } from "../tenant.js";
 import { getRequestId } from "../types.js";
 
 type BulkUsageResult = {
@@ -30,6 +33,7 @@ export function createUsageRouter(): Router {
   router.post("/api/v1/usage", (req: Request, res: Response) => {
     const { agent, serviceId, requests } = req.body ?? {};
     const requestId = getRequestId(req);
+    const tenantId = resolveTenantId(req);
 
     if (typeof agent !== "string" || agent.length === 0 || agent.length > 256) {
       res.status(400).json({
@@ -60,7 +64,7 @@ export function createUsageRouter(): Router {
       return;
     }
 
-    if (servicesDisabled.has(serviceId)) {
+    if (servicesDisabled.has(serviceKey(tenantId, serviceId))) {
       res.status(409).json({
         error: "service_disabled",
         message: `service ${serviceId} is currently disabled`,
@@ -69,7 +73,7 @@ export function createUsageRouter(): Router {
       return;
     }
 
-    const key = usageKey(agent, serviceId);
+    const key = usageKey(tenantId, agent, serviceId);
     const prev = usageStore.get(key) ?? 0;
     const total = Math.min(Number.MAX_SAFE_INTEGER, prev + requests);
     usageStore.set(key, total);
@@ -80,6 +84,7 @@ export function createUsageRouter(): Router {
 
   router.post("/api/v1/usage/bulk", (req: Request, res: Response) => {
     const requestId = getRequestId(req);
+    const tenantId = resolveTenantId(req);
     const { items } = req.body ?? {};
     if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
       res.status(400).json({
@@ -102,7 +107,7 @@ export function createUsageRouter(): Router {
         results.push({ index: i, ok: false, error: "invalid_item" });
         continue;
       }
-      const key = usageKey(agent, serviceId);
+      const key = usageKey(tenantId, agent, serviceId);
       const total = Math.min(
         Number.MAX_SAFE_INTEGER,
         (usageStore.get(key) ?? 0) + requests
@@ -122,15 +127,18 @@ export function createUsageRouter(): Router {
 
   router.get("/api/v1/usage/:agent/:serviceId", (req: Request, res: Response) => {
     const { agent, serviceId } = req.params;
-    const total = usageStore.get(usageKey(agent, serviceId)) ?? 0;
+    const tenantId = resolveTenantId(req);
+    const total = usageStore.get(usageKey(tenantId, agent, serviceId)) ?? 0;
     res.json({ agent, serviceId, total });
   });
 
-  router.get("/api/v1/usage/export.csv", (_req, res: Response) => {
+  router.get("/api/v1/usage/export.csv", (req: Request, res: Response) => {
+    const tenantId = resolveTenantId(req);
     const escape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
     const rows: string[] = ["agent,serviceId,total"];
     for (const [key, total] of usageStore.entries()) {
-      const [agent, serviceId] = key.split("::");
+      const { tenantId: itemTenantId, agent, serviceId } = parseUsageKey(key);
+      if (itemTenantId !== tenantId) continue;
       rows.push(`${escape(agent)},${escape(serviceId)},${total}`);
     }
     res.setHeader("Content-Type", "text/csv");
@@ -138,10 +146,12 @@ export function createUsageRouter(): Router {
     res.send(rows.join("\n") + "\n");
   });
 
-  router.get("/api/v1/usage/export.json", (_req, res: Response) => {
+  router.get("/api/v1/usage/export.json", (req: Request, res: Response) => {
+    const tenantId = resolveTenantId(req);
     const items: { agent: string; serviceId: string; total: number }[] = [];
     for (const [key, total] of usageStore.entries()) {
-      const [agent, serviceId] = key.split("::");
+      const { tenantId: itemTenantId, agent, serviceId } = parseUsageKey(key);
+      if (itemTenantId !== tenantId) continue;
       items.push({ agent, serviceId, total });
     }
     res.setHeader("Content-Disposition", "attachment; filename=usage.json");
@@ -154,7 +164,8 @@ export function createUsageRouter(): Router {
    * disabled services. The added fields expose hidden disabled and unpriced
    * buckets without silently folding them into zero-priced usage.
    */
-  router.get("/api/v1/billing/total", (_req, res: Response) => {
+  router.get("/api/v1/billing/total", (req: Request, res: Response) => {
+    const tenantId = resolveTenantId(req);
     const breakdown: BillingTotalBreakdown = {
       totalStroops: 0,
       disabledStroops: 0,
@@ -162,8 +173,9 @@ export function createUsageRouter(): Router {
     };
 
     for (const [key, requests] of usageStore.entries()) {
-      const [, serviceId] = key.split("::");
-      const service = servicesStore.get(serviceId);
+      const parsed = parseUsageKey(key);
+      if (parsed.tenantId !== tenantId) continue;
+      const service = servicesStore.get(serviceKey(tenantId, parsed.serviceId));
       if (!service) {
         breakdown.unpricedRequests += requests;
         continue;
@@ -171,7 +183,7 @@ export function createUsageRouter(): Router {
 
       const billedStroops = requests * service.priceStroops;
       breakdown.totalStroops += billedStroops;
-      if (servicesDisabled.has(serviceId)) {
+      if (servicesDisabled.has(serviceKey(tenantId, parsed.serviceId))) {
         breakdown.disabledStroops += billedStroops;
       }
     }
@@ -180,8 +192,9 @@ export function createUsageRouter(): Router {
 
   router.get("/api/v1/billing/:agent/:serviceId", (req: Request, res: Response) => {
     const { agent, serviceId } = req.params;
-    const requests = usageStore.get(usageKey(agent, serviceId)) ?? 0;
-    const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
+    const tenantId = resolveTenantId(req);
+    const requests = usageStore.get(usageKey(tenantId, agent, serviceId)) ?? 0;
+    const price = servicesStore.get(serviceKey(tenantId, serviceId))?.priceStroops ?? 0;
     res.json({
       agent,
       serviceId,
@@ -194,6 +207,7 @@ export function createUsageRouter(): Router {
   router.post("/api/v1/settle", (req: Request, res: Response) => {
     const { agent, serviceId } = req.body ?? {};
     const requestId = getRequestId(req);
+    const tenantId = resolveTenantId(req);
     if (typeof agent !== "string" || typeof serviceId !== "string") {
       res.status(400).json({
         error: "invalid_request",
@@ -202,9 +216,9 @@ export function createUsageRouter(): Router {
       });
       return;
     }
-    const key = usageKey(agent, serviceId);
+    const key = usageKey(tenantId, agent, serviceId);
     const requests = usageStore.get(key) ?? 0;
-    const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
+    const price = servicesStore.get(serviceKey(tenantId, serviceId))?.priceStroops ?? 0;
     const billedStroops = requests * price;
     usageStore.set(key, 0);
     recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
@@ -212,33 +226,39 @@ export function createUsageRouter(): Router {
   });
 
   router.get("/api/v1/agents", (req: Request, res: Response) => {
+    const tenantId = resolveTenantId(req);
     const limit = Math.min(
       1000,
       Math.max(1, Number((req.query.limit as string) ?? 200))
     );
     const seen = new Set<string>();
-    for (const key of usageStore.keys()) seen.add(key.split("::")[0]);
+    for (const key of usageStore.keys()) {
+      const parsed = parseUsageKey(key);
+      if (parsed.tenantId === tenantId) seen.add(parsed.agent);
+    }
     const agents = Array.from(seen).slice(0, limit);
     res.json({ agents });
   });
 
   router.get("/api/v1/agents/:agent/total", (req: Request, res: Response) => {
     const { agent } = req.params;
-    const prefix = `${agent}::`;
+    const tenantId = resolveTenantId(req);
     let total = 0;
     for (const [key, n] of usageStore.entries()) {
-      if (key.startsWith(prefix)) total += n;
+      const parsed = parseUsageKey(key);
+      if (parsed.tenantId === tenantId && parsed.agent === agent) total += n;
     }
     res.json({ agent, total });
   });
 
   router.get("/api/v1/agents/:agent/usage", (req: Request, res: Response) => {
     const { agent } = req.params;
-    const prefix = `${agent}::`;
+    const tenantId = resolveTenantId(req);
     const items: { serviceId: string; total: number }[] = [];
     for (const [key, total] of usageStore.entries()) {
-      if (key.startsWith(prefix)) {
-        items.push({ serviceId: key.slice(prefix.length), total });
+      const parsed = parseUsageKey(key);
+      if (parsed.tenantId === tenantId && parsed.agent === agent) {
+        items.push({ serviceId: parsed.serviceId, total });
       }
     }
     res.json({ agent, items });
