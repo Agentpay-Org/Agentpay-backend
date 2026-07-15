@@ -1,193 +1,215 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert";
 import request from "supertest";
-import { createApp } from "./index.js";
-import { eventLog } from "./events.js";
+import { app } from "./index.js";
 import {
   apiKeyStore,
   pauseState,
-  rateBuckets,
   servicesDisabled,
   servicesMetadata,
   servicesStore,
   usageStore,
-  webhookStore,
 } from "./store/state.js";
 
-const app = createApp();
+let seq = 0;
+const sid = () => `tenant-svc-${Date.now()}-${++seq}`;
+
+async function createApiKey(label: string): Promise<string> {
+  const res = await request(app).post("/api/v1/api-keys").send({ label });
+  assert.strictEqual(res.status, 201);
+  const key = res.body.key as unknown;
+  if (typeof key !== "string") {
+    throw new Error("expected API key response to include a string key");
+  }
+  assert.match(key, /^apk_/);
+  return key;
+}
 
 beforeEach(() => {
   apiKeyStore.clear();
-  eventLog.length = 0;
-  rateBuckets.clear();
   servicesDisabled.clear();
   servicesMetadata.clear();
   servicesStore.clear();
   usageStore.clear();
-  webhookStore.clear();
   pauseState.paused = false;
 });
 
-async function createApiKey(label: string) {
-  const res = await request(app).post("/api/v1/api-keys").send({ label });
-  assert.strictEqual(res.status, 201);
-  return res.body.key as string;
-}
+void describe("Tenant scoping", () => {
+  void it("lets different API-key tenants register the same serviceId independently", async () => {
+    const keyA = await createApiKey("tenant-a");
+    const keyB = await createApiKey("tenant-b");
+    const serviceId = sid();
 
-async function createService(apiKey: string, serviceId: string, priceStroops: number) {
-  const res = await request(app)
-    .post("/api/v1/services")
-    .set("X-API-Key", apiKey)
-    .send({ serviceId, priceStroops });
-  assert.strictEqual(res.status, 201);
-  return res;
-}
+    const createA = await request(app)
+      .post("/api/v1/services")
+      .set("X-API-Key", keyA)
+      .send({ serviceId, priceStroops: 10 });
+    assert.strictEqual(createA.status, 201);
 
-void describe("tenant scoped service and usage state", () => {
-  void it("allows the same serviceId to exist independently for two tenants", async () => {
-    const tenantA = await createApiKey("tenant-a");
-    const tenantB = await createApiKey("tenant-b");
+    const createB = await request(app)
+      .post("/api/v1/services")
+      .set("X-API-Key", keyB)
+      .send({ serviceId, priceStroops: 20 });
+    assert.strictEqual(createB.status, 201);
 
-    await createService(tenantA, "shared-service", 10);
-    await createService(tenantB, "shared-service", 25);
+    const readA = await request(app)
+      .get(`/api/v1/services/${serviceId}`)
+      .set("X-API-Key", keyA);
+    assert.strictEqual(readA.status, 200);
+    assert.strictEqual(readA.body.priceStroops, 10);
 
-    const aDetail = await request(app)
-      .get("/api/v1/services/shared-service")
-      .set("X-API-Key", tenantA);
-    const bDetail = await request(app)
-      .get("/api/v1/services/shared-service")
-      .set("X-API-Key", tenantB);
+    const readB = await request(app)
+      .get(`/api/v1/services/${serviceId}`)
+      .set("X-API-Key", keyB);
+    assert.strictEqual(readB.status, 200);
+    assert.strictEqual(readB.body.priceStroops, 20);
 
-    assert.strictEqual(aDetail.status, 200);
-    assert.strictEqual(bDetail.status, 200);
-    assert.strictEqual(aDetail.body.priceStroops, 10);
-    assert.strictEqual(bDetail.body.priceStroops, 25);
+    const readPublic = await request(app).get(`/api/v1/services/${serviceId}`);
+    assert.strictEqual(readPublic.status, 404);
+    assert.strictEqual(readPublic.body.error, "not_found");
 
-    const aList = await request(app).get("/api/v1/services").set("X-API-Key", tenantA);
-    const bList = await request(app).get("/api/v1/services").set("X-API-Key", tenantB);
-
-    assert.deepStrictEqual(aList.body.services, [
-      { serviceId: "shared-service", priceStroops: 10, disabled: false },
+    const listA = await request(app).get("/api/v1/services").set("X-API-Key", keyA);
+    const listB = await request(app).get("/api/v1/services").set("X-API-Key", keyB);
+    assert.deepStrictEqual(listA.body.services, [
+      { serviceId, priceStroops: 10, disabled: false },
     ]);
-    assert.deepStrictEqual(bList.body.services, [
-      { serviceId: "shared-service", priceStroops: 25, disabled: false },
+    assert.deepStrictEqual(listB.body.services, [
+      { serviceId, priceStroops: 20, disabled: false },
     ]);
   });
 
-  void it("returns not_found for cross-tenant service reads and mutations", async () => {
-    const tenantA = await createApiKey("tenant-a");
-    const tenantB = await createApiKey("tenant-b");
-    await createService(tenantA, "private-service", 10);
+  void it("returns 404 for cross-tenant service mutations without leaking existence", async () => {
+    const ownerKey = await createApiKey("owner");
+    const otherKey = await createApiKey("other");
+    const serviceId = sid();
 
-    const detail = await request(app)
-      .get("/api/v1/services/private-service")
-      .set("X-API-Key", tenantB);
-    assert.strictEqual(detail.status, 404);
-    assert.strictEqual(detail.body.error, "not_found");
+    await request(app)
+      .post("/api/v1/services")
+      .set("X-API-Key", ownerKey)
+      .send({ serviceId, priceStroops: 100 })
+      .expect(201);
 
     const price = await request(app)
-      .patch("/api/v1/services/private-service/price")
-      .set("X-API-Key", tenantB)
-      .send({ priceStroops: 99 });
+      .patch(`/api/v1/services/${serviceId}/price`)
+      .set("X-API-Key", otherKey)
+      .send({ priceStroops: 250 });
     assert.strictEqual(price.status, 404);
     assert.strictEqual(price.body.error, "not_found");
 
     const metadata = await request(app)
-      .put("/api/v1/services/private-service/metadata")
-      .set("X-API-Key", tenantB)
-      .send({ description: "should not leak", owner: "tenant-b" });
+      .put(`/api/v1/services/${serviceId}/metadata`)
+      .set("X-API-Key", otherKey)
+      .send({ description: "hidden", owner: "other" });
     assert.strictEqual(metadata.status, 404);
     assert.strictEqual(metadata.body.error, "not_found");
 
     const disabled = await request(app)
-      .patch("/api/v1/services/private-service/disabled")
-      .set("X-API-Key", tenantB)
+      .patch(`/api/v1/services/${serviceId}/disabled`)
+      .set("X-API-Key", otherKey)
       .send({ disabled: true });
     assert.strictEqual(disabled.status, 404);
     assert.strictEqual(disabled.body.error, "not_found");
 
-    const settle = await request(app)
-      .post("/api/v1/settle")
-      .set("X-API-Key", tenantB)
-      .send({ agent: "agent-a", serviceId: "private-service" });
-    assert.strictEqual(settle.status, 404);
-    assert.strictEqual(settle.body.error, "not_found");
+    const deleted = await request(app)
+      .delete(`/api/v1/services/${serviceId}`)
+      .set("X-API-Key", otherKey);
+    assert.strictEqual(deleted.status, 404);
+    assert.strictEqual(deleted.body.error, "not_found");
 
-    const ownerDetail = await request(app)
-      .get("/api/v1/services/private-service")
-      .set("X-API-Key", tenantA);
-    assert.strictEqual(ownerDetail.status, 200);
-    assert.strictEqual(ownerDetail.body.priceStroops, 10);
+    const ownerRead = await request(app)
+      .get(`/api/v1/services/${serviceId}`)
+      .set("X-API-Key", ownerKey);
+    assert.strictEqual(ownerRead.status, 200);
+    assert.strictEqual(ownerRead.body.priceStroops, 100);
+    assert.strictEqual(ownerRead.body.disabled, false);
   });
 
-  void it("keeps usage and per-service rollups isolated by tenant", async () => {
-    const tenantA = await createApiKey("tenant-a");
-    const tenantB = await createApiKey("tenant-b");
-    await createService(tenantA, "metered-service", 3);
-    await createService(tenantB, "metered-service", 7);
+  void it("keeps usage rollups and settlement isolated by tenant", async () => {
+    const keyA = await createApiKey("tenant-a");
+    const keyB = await createApiKey("tenant-b");
+    const serviceId = sid();
 
-    await request(app)
-      .post("/api/v1/usage")
-      .set("X-API-Key", tenantA)
-      .send({ agent: "shared-agent", serviceId: "metered-service", requests: 2 });
-    await request(app)
-      .post("/api/v1/usage")
-      .set("X-API-Key", tenantB)
-      .send({ agent: "shared-agent", serviceId: "metered-service", requests: 5 });
-
-    const aUsage = await request(app)
-      .get("/api/v1/usage/shared-agent/metered-service")
-      .set("X-API-Key", tenantA);
-    const bUsage = await request(app)
-      .get("/api/v1/usage/shared-agent/metered-service")
-      .set("X-API-Key", tenantB);
-    assert.strictEqual(aUsage.body.total, 2);
-    assert.strictEqual(bUsage.body.total, 5);
-
-    const aRollup = await request(app)
-      .get("/api/v1/services/metered-service/usage")
-      .set("X-API-Key", tenantA);
-    const bRollup = await request(app)
-      .get("/api/v1/services/metered-service/usage")
-      .set("X-API-Key", tenantB);
-    assert.deepStrictEqual(aRollup.body, {
-      serviceId: "metered-service",
-      total: 2,
-      agents: 1,
-    });
-    assert.deepStrictEqual(bRollup.body, {
-      serviceId: "metered-service",
-      total: 5,
-      agents: 1,
-    });
-
-    const aBilling = await request(app)
-      .get("/api/v1/billing/shared-agent/metered-service")
-      .set("X-API-Key", tenantA);
-    const bBilling = await request(app)
-      .get("/api/v1/billing/shared-agent/metered-service")
-      .set("X-API-Key", tenantB);
-    assert.strictEqual(aBilling.body.billedStroops, 6);
-    assert.strictEqual(bBilling.body.billedStroops, 35);
-  });
-
-  void it("uses one implicit tenant when no API key is recognised", async () => {
     await request(app)
       .post("/api/v1/services")
-      .send({ serviceId: "open-service", priceStroops: 11 });
+      .set("X-API-Key", keyA)
+      .send({ serviceId, priceStroops: 5 })
+      .expect(201);
+    await request(app)
+      .post("/api/v1/services")
+      .set("X-API-Key", keyB)
+      .send({ serviceId, priceStroops: 7 })
+      .expect(201);
+
     await request(app)
       .post("/api/v1/usage")
-      .send({ agent: "open-agent", serviceId: "open-service", requests: 4 });
+      .set("X-API-Key", keyA)
+      .send({ agent: "agent-1", serviceId, requests: 3 })
+      .expect(201);
+    await request(app)
+      .post("/api/v1/usage")
+      .set("X-API-Key", keyB)
+      .send({ agent: "agent-1", serviceId, requests: 2 })
+      .expect(201);
 
-    const list = await request(app).get("/api/v1/services");
-    assert.deepStrictEqual(list.body.services, [
-      { serviceId: "open-service", priceStroops: 11, disabled: false },
-    ]);
+    const rollupA = await request(app)
+      .get(`/api/v1/services/${serviceId}/usage`)
+      .set("X-API-Key", keyA);
+    assert.deepStrictEqual(rollupA.body, { serviceId, total: 3, agents: 1 });
 
-    const settle = await request(app)
+    const rollupB = await request(app)
+      .get(`/api/v1/services/${serviceId}/usage`)
+      .set("X-API-Key", keyB);
+    assert.deepStrictEqual(rollupB.body, { serviceId, total: 2, agents: 1 });
+
+    const settleB = await request(app)
       .post("/api/v1/settle")
-      .send({ agent: "open-agent", serviceId: "open-service" });
-    assert.strictEqual(settle.status, 200);
-    assert.strictEqual(settle.body.billedStroops, 44);
+      .set("X-API-Key", keyB)
+      .send({ agent: "agent-1", serviceId });
+    assert.strictEqual(settleB.status, 200);
+    assert.strictEqual(settleB.body.requests, 2);
+    assert.strictEqual(settleB.body.billedStroops, 14);
+
+    const usageAAfterBSettle = await request(app)
+      .get(`/api/v1/usage/agent-1/${serviceId}`)
+      .set("X-API-Key", keyA);
+    assert.strictEqual(usageAAfterBSettle.body.total, 3);
+
+    const settleA = await request(app)
+      .post("/api/v1/settle")
+      .set("X-API-Key", keyA)
+      .send({ agent: "agent-1", serviceId });
+    assert.strictEqual(settleA.status, 200);
+    assert.strictEqual(settleA.body.requests, 3);
+    assert.strictEqual(settleA.body.billedStroops, 15);
+  });
+
+  void it("keeps the legacy public tenant separate from API-key tenants", async () => {
+    const key = await createApiKey("tenant");
+    const serviceId = sid();
+
+    await request(app)
+      .post("/api/v1/services")
+      .send({ serviceId, priceStroops: 11 })
+      .expect(201);
+    await request(app)
+      .post("/api/v1/usage")
+      .send({ agent: "public-agent", serviceId, requests: 4 })
+      .expect(201);
+
+    const keyedRead = await request(app)
+      .get(`/api/v1/services/${serviceId}`)
+      .set("X-API-Key", key);
+    assert.strictEqual(keyedRead.status, 404);
+    assert.strictEqual(keyedRead.body.error, "not_found");
+
+    const keyedUsage = await request(app)
+      .get(`/api/v1/usage/public-agent/${serviceId}`)
+      .set("X-API-Key", key);
+    assert.strictEqual(keyedUsage.body.total, 0);
+
+    const publicUsage = await request(app).get(
+      `/api/v1/usage/public-agent/${serviceId}`
+    );
+    assert.strictEqual(publicUsage.body.total, 4);
   });
 });

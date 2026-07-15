@@ -122,6 +122,20 @@ files are ignored by Docker builds and must not be baked into image layers.
   for `POST /api/v1/usage`, `POST /api/v1/usage/bulk`, and
   `POST /api/v1/settle`.
 
+## Multi-tenancy
+
+Service registration, service metadata, disabled-state mutations, usage
+accumulators, per-service rollups, billing quotes, and settlement are scoped to
+the authenticated tenant. A tenant is derived from a recognized `X-API-Key`; the
+API key is hashed internally before it is used as an in-memory store key, so the
+secret is not exposed in responses or logs. When no valid key is supplied, the
+backend preserves local-development behavior by using a shared `public` tenant.
+
+Cross-tenant reads and mutations return `404 not_found` instead of `403`, so a
+caller cannot use the API to enumerate another tenant's `serviceId`s. Different
+tenants may safely register the same public `serviceId`; each tenant receives its
+own price, metadata, disabled flag, usage counters, and settlement balance.
+
 ## Quickstart
 
 Start a local backend on `http://localhost:3001` with the checked-in

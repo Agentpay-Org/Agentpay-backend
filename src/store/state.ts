@@ -1,3 +1,5 @@
+import { DEFAULT_TENANT_ID } from "../tenant.js";
+
 /**
  * Mutable process-local stores used by the in-memory AgentPay API.
  *
@@ -30,17 +32,63 @@ export const config: Record<string, number> = {
 /** Opaque API keys keyed by SHA-256 hash, never by the live secret token. */
 export const apiKeyStore = new Map<string, ApiKeyRecord>();
 
-/** Outstanding usage counters keyed by tenant-aware usage keys. */
-export const usageStore = new Map<string, number>();
+const TENANT_KEY_SEPARATOR = "\x1f";
+
+/** Builds an internal key that keeps the historic public-tenant shape intact. */
+export function serviceKey(tenantId: string, serviceId: string): string {
+  return tenantId === DEFAULT_TENANT_ID
+    ? serviceId
+    : `${tenantId}${TENANT_KEY_SEPARATOR}${serviceId}`;
+}
 
 /**
- * Cumulative process-local settlement counters.
- * Stroops are stored as bigint and serialized as decimal strings for JSON.
+ * Splits an internal service key into tenant and public service id pieces.
  */
-export const settlementCounters = {
-  settledStroopsTotal: 0n,
-  settlementsTotal: 0,
-};
+export function parseServiceKey(key: string): {
+  tenantId: string;
+  serviceId: string;
+} {
+  const separatorIndex = key.indexOf(TENANT_KEY_SEPARATOR);
+  if (separatorIndex === -1) {
+    return { tenantId: DEFAULT_TENANT_ID, serviceId: key };
+  }
+  return {
+    tenantId: key.slice(0, separatorIndex),
+    serviceId: key.slice(separatorIndex + TENANT_KEY_SEPARATOR.length),
+  };
+}
+
+/** Outstanding usage counters keyed by tenant/agent/service. */
+export const usageStore = new Map<string, number>();
+
+/** Builds the shared in-memory usage key for an agent/service pair. */
+export function usageKey(a: string, b: string, c?: string): string {
+  if (c === undefined) {
+    return `${a}::${b}`;
+  }
+  return a === DEFAULT_TENANT_ID
+    ? `${b}::${c}`
+    : `${a}${TENANT_KEY_SEPARATOR}${b}::${c}`;
+}
+
+/**
+ * Splits an internal usage key into tenant, agent, and public service id pieces.
+ */
+export function parseUsageKey(key: string): {
+  tenantId: string;
+  agent: string;
+  serviceId: string;
+} {
+  let tenantId = DEFAULT_TENANT_ID;
+  let remainder = key;
+  const separatorIndex = key.indexOf(TENANT_KEY_SEPARATOR);
+  if (separatorIndex !== -1) {
+    tenantId = key.slice(0, separatorIndex);
+    remainder = key.slice(separatorIndex + TENANT_KEY_SEPARATOR.length);
+  }
+  const [agent = "", serviceId = ""] = remainder.split("::");
+  return { tenantId, agent, serviceId };
+}
 
 /** Builds the shared in-memory usage key for an agent/service pair. */
 export const usageKey = (
