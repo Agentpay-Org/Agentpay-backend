@@ -14,6 +14,7 @@ import { createMetricsRouter } from "./routes/metrics.js";
 import { createServicesRouter } from "./routes/services.js";
 import { createUsageRouter } from "./routes/usage.js";
 import { createWebhooksRouter } from "./routes/webhooks.js";
+import { markShuttingDown } from "./readiness.js";
 
 const PORT = process.env.PORT ?? 3001;
 const DRAIN_TIMEOUT_MS = 10_000;
@@ -165,10 +166,23 @@ if (isServerEntrypoint()) {
     console.log(`AgentPay backend listening on port ${PORT}`);
   });
 
-  const shutdownController = createShutdownController({ server });
-  process.on("SIGTERM", () => shutdownController.shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdownController.shutdown("SIGINT"));
-  installProcessFaultHandlers(process, shutdownController);
+  const shutdown = (signal: string) => {
+    markShuttingDown();
+    console.log(`Received ${signal}, draining…`);
+    server.close((err) => {
+      if (err) {
+        console.error("server.close error:", err);
+        process.exit(1);
+      }
+      process.exit(0);
+    });
+    setTimeout(() => {
+      console.error("Forced exit after 10s drain timeout");
+      process.exit(1);
+    }, 10_000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 export {

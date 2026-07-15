@@ -121,6 +121,31 @@ When the caller is limited, the `429 rate_limited` response also includes
 `Retry-After` with the same resolved seconds as `RateLimit-Reset`. These values
 are derived only from the caller's own in-memory bucket.
 
+## Health and readiness probes
+
+Use `GET /health` as the liveness probe. It returns `200` while the process is
+running, including during graceful shutdown drain, so supervisors can tell the
+process itself is still alive.
+
+Use `GET /api/v1/health/ready` as the readiness probe. It returns
+`200 { "ready": true }` during normal operation and
+`503 { "ready": false }` after `SIGTERM` or `SIGINT` starts graceful shutdown.
+The readiness response intentionally exposes only the boolean readiness signal.
+It is independent from the admin pause flag, which only gates write traffic.
+
+Example Kubernetes probes:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3001
+readinessProbe:
+  httpGet:
+    path: /api/v1/health/ready
+    port: 3001
+```
+
 Set a shell variable for the local base URL:
 
 ```bash
