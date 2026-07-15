@@ -133,11 +133,12 @@ BASE_URL=http://localhost:3001
    `invalid_item`, and later occurrences of a duplicate `serviceId` in the same
    batch report `duplicate_in_batch` without overwriting the first item.
 
-   Numeric safety limits protect billing math from lossy JavaScript number
-   precision. A single usage item may record up to `1,000,000` requests, and a
-   service price may be up to `9,007,199,254` stroops. Bulk endpoints keep their
-   partial-success behavior and mark items outside those bounds as
-   `invalid_item`.
+   Numeric request bodies are bounded before they enter counters or billing
+   math. `requests` must be a positive integer up to 1,000,000 per call.
+   `priceStroops` must be a non-negative integer up to 9,007,199,254. Those
+   paired limits keep a single request's `requests * priceStroops` calculation
+   inside JavaScript's safe integer range. Bulk endpoints reject only the
+   offending item and keep valid items in the same batch.
 
 2. Record usage for an agent.
 

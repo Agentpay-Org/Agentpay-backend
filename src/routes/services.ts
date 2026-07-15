@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
+import { MAX_PRICE_STROOPS, isSafePrice } from "../numericLimits.js";
 import {
   servicesDisabled,
   servicesMetadata,
@@ -131,9 +132,7 @@ export function createServicesRouter(): Router {
       });
       return;
     }
-    if (
-      !isSafePrice(priceStroops)
-    ) {
+    if (!isSafePrice(priceStroops)) {
       res.status(400).json({
         error: "invalid_request",
         message: `priceStroops must be a non-negative integer up to ${MAX_PRICE_STROOPS}`,
@@ -308,9 +307,7 @@ export function createServicesRouter(): Router {
       return;
     }
     const { priceStroops } = req.body ?? {};
-    if (
-      !isSafePrice(priceStroops)
-    ) {
+    if (!isSafePrice(priceStroops)) {
       res.status(400).json({
         error: "invalid_request",
         message: `priceStroops must be a non-negative integer up to ${MAX_PRICE_STROOPS}`,

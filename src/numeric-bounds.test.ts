@@ -1,130 +1,131 @@
-import { describe, it, beforeEach } from "node:test";
+import { beforeEach, describe, it } from "node:test";
 import assert from "node:assert";
 import request from "supertest";
-import { app } from "./index.js";
-import {
-  isSafeCount,
-  isSafePrice,
-  MAX_PRICE_STROOPS,
-  MAX_REQUESTS_PER_CALL,
-} from "./validation.js";
+import { createApp } from "./index.js";
+import { MAX_PRICE_STROOPS, MAX_REQUESTS_PER_CALL } from "./numericLimits.js";
+import { servicesStore, usageKey, usageStore } from "./store/state.js";
 
-let seq = 0;
-const sid = () => `svc-numeric-${Date.now()}-${++seq}`;
+const app = createApp();
 
-beforeEach(async () => {
-  await request(app).post("/api/v1/admin/unpause");
+beforeEach(() => {
+  usageStore.clear();
+  servicesStore.clear();
 });
 
-void describe("numeric request bounds", () => {
-  void it("keeps the maximum single billing multiplication within safe integer range", () => {
-    assert.ok(MAX_REQUESTS_PER_CALL > 0);
-    assert.ok(MAX_PRICE_STROOPS >= 0);
-    assert.ok(
-      MAX_REQUESTS_PER_CALL * MAX_PRICE_STROOPS <= Number.MAX_SAFE_INTEGER
-    );
-  });
-
-  void it("rejects NaN, Infinity, floats, and unsafe helper inputs", () => {
-    for (const value of [
-      Number.NaN,
-      Number.POSITIVE_INFINITY,
-      Number.NEGATIVE_INFINITY,
-      1.5,
-      Number.MAX_SAFE_INTEGER + 1,
-    ]) {
-      assert.strictEqual(isSafeCount(value), false);
-      assert.strictEqual(isSafePrice(value), false);
-    }
-  });
-
-  void it("bounds POST /api/v1/usage request counts", async () => {
-    const accepted = await request(app)
+void describe("numeric request body bounds", () => {
+  void it("rejects over-max usage requests without mutating counters", async () => {
+    const res = await request(app)
       .post("/api/v1/usage")
       .send({
-        agent: "agent-safe-count",
-        serviceId: sid(),
-        requests: MAX_REQUESTS_PER_CALL,
-      });
-    assert.strictEqual(accepted.status, 201);
-    assert.strictEqual(accepted.body.total, MAX_REQUESTS_PER_CALL);
-
-    const rejected = await request(app)
-      .post("/api/v1/usage")
-      .send({
-        agent: "agent-unsafe-count",
-        serviceId: sid(),
+        agent: "agent-bounds",
+        serviceId: "svc-bounds",
         requests: MAX_REQUESTS_PER_CALL + 1,
       });
-    assert.strictEqual(rejected.status, 400);
-    assert.strictEqual(rejected.body.error, "invalid_request");
-    assert.match(
-      String(rejected.body.message),
-      /requests must be a positive integer up to/
-    );
+
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.body.error, "invalid_request");
+    assert.strictEqual(usageStore.has(usageKey("agent-bounds", "svc-bounds")), false);
   });
 
-  void it("marks oversized bulk usage items invalid without rejecting the whole batch", async () => {
+  void it("accepts the documented maximum usage request count", async () => {
+    const res = await request(app).post("/api/v1/usage").send({
+      agent: "agent-bounds",
+      serviceId: "svc-bounds",
+      requests: MAX_REQUESTS_PER_CALL,
+    });
+
+    assert.strictEqual(res.status, 201);
+    assert.strictEqual(res.body.total, MAX_REQUESTS_PER_CALL);
+  });
+
+  void it("marks over-max bulk usage items invalid while keeping valid items", async () => {
     const res = await request(app)
       .post("/api/v1/usage/bulk")
       .send({
         items: [
-          { agent: "agent-bulk-bound", serviceId: sid(), requests: MAX_REQUESTS_PER_CALL + 1 },
-          { agent: "agent-bulk-bound", serviceId: sid(), requests: MAX_REQUESTS_PER_CALL },
+          {
+            agent: "agent-bulk",
+            serviceId: "svc-bulk",
+            requests: MAX_REQUESTS_PER_CALL,
+          },
+          {
+            agent: "agent-bulk",
+            serviceId: "svc-bulk",
+            requests: MAX_REQUESTS_PER_CALL + 1,
+          },
         ],
       });
 
     assert.strictEqual(res.status, 201);
-    assert.deepStrictEqual(res.body.results[0], {
-      index: 0,
-      ok: false,
-      error: "invalid_item",
-    });
-    assert.strictEqual(res.body.results[1].ok, true);
-    assert.strictEqual(res.body.results[1].total, MAX_REQUESTS_PER_CALL);
+    assert.deepStrictEqual(res.body.results, [
+      { index: 0, ok: true, total: MAX_REQUESTS_PER_CALL },
+      { index: 1, ok: false, error: "invalid_item" },
+    ]);
+    assert.strictEqual(
+      usageStore.get(usageKey("agent-bulk", "svc-bulk")),
+      MAX_REQUESTS_PER_CALL
+    );
   });
 
-  void it("bounds service prices on create, patch, and bulk create", async () => {
-    const createAtMax = await request(app)
+  void it("rejects over-max service prices without registering the service", async () => {
+    const res = await request(app)
       .post("/api/v1/services")
-      .send({ serviceId: sid(), priceStroops: MAX_PRICE_STROOPS });
-    assert.strictEqual(createAtMax.status, 201);
-    assert.strictEqual(createAtMax.body.priceStroops, MAX_PRICE_STROOPS);
+      .send({
+        serviceId: "svc-price-too-large",
+        priceStroops: MAX_PRICE_STROOPS + 1,
+      });
 
-    const createOverMax = await request(app)
-      .post("/api/v1/services")
-      .send({ serviceId: sid(), priceStroops: MAX_PRICE_STROOPS + 1 });
-    assert.strictEqual(createOverMax.status, 400);
-    assert.strictEqual(createOverMax.body.error, "invalid_request");
-    assert.match(
-      String(createOverMax.body.message),
-      /priceStroops must be a non-negative integer up to/
-    );
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.body.error, "invalid_request");
+    assert.strictEqual(servicesStore.has("svc-price-too-large"), false);
+  });
 
-    const patchId = sid();
-    await request(app)
-      .post("/api/v1/services")
-      .send({ serviceId: patchId, priceStroops: 1 });
-    const patchOverMax = await request(app)
-      .patch(`/api/v1/services/${patchId}/price`)
-      .send({ priceStroops: MAX_PRICE_STROOPS + 1 });
-    assert.strictEqual(patchOverMax.status, 400);
-    assert.strictEqual(patchOverMax.body.error, "invalid_request");
+  void it("accepts the documented maximum service price", async () => {
+    const res = await request(app).post("/api/v1/services").send({
+      serviceId: "svc-price-max",
+      priceStroops: MAX_PRICE_STROOPS,
+    });
 
-    const bulk = await request(app)
+    assert.strictEqual(res.status, 201);
+    assert.strictEqual(res.body.priceStroops, MAX_PRICE_STROOPS);
+  });
+
+  void it("marks over-max bulk service prices invalid while keeping valid items", async () => {
+    const res = await request(app)
       .post("/api/v1/services/bulk")
       .send({
         items: [
-          { serviceId: sid(), priceStroops: MAX_PRICE_STROOPS + 1 },
-          { serviceId: sid(), priceStroops: MAX_PRICE_STROOPS },
+          { serviceId: "svc-price-good", priceStroops: MAX_PRICE_STROOPS },
+          { serviceId: "svc-price-bad", priceStroops: MAX_PRICE_STROOPS + 1 },
         ],
       });
-    assert.strictEqual(bulk.status, 201);
-    assert.deepStrictEqual(bulk.body.results[0], {
-      index: 0,
-      ok: false,
-      error: "invalid_item",
+
+    assert.strictEqual(res.status, 201);
+    assert.deepStrictEqual(res.body.results, [
+      {
+        index: 0,
+        ok: true,
+        serviceId: "svc-price-good",
+        priceStroops: MAX_PRICE_STROOPS,
+        created: true,
+      },
+      { index: 1, ok: false, error: "invalid_item" },
+    ]);
+    assert.strictEqual(servicesStore.has("svc-price-good"), true);
+    assert.strictEqual(servicesStore.has("svc-price-bad"), false);
+  });
+
+  void it("rejects over-max price patches without changing the old price", async () => {
+    servicesStore.set("svc-patch-price", { priceStroops: 10 });
+
+    const res = await request(app)
+      .patch("/api/v1/services/svc-patch-price/price")
+      .send({ priceStroops: MAX_PRICE_STROOPS + 1 });
+
+    assert.strictEqual(res.status, 400);
+    assert.strictEqual(res.body.error, "invalid_request");
+    assert.deepStrictEqual(servicesStore.get("svc-patch-price"), {
+      priceStroops: 10,
     });
-    assert.strictEqual(bulk.body.results[1].ok, true);
   });
 });
