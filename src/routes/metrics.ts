@@ -1,11 +1,6 @@
 import { Router, type Response } from "express";
-import {
-  apiKeyStore,
-  pauseState,
-  servicesStore,
-  settlementCounters,
-  usageStore,
-} from "../store/state.js";
+import { apiKeyStore, pauseState, servicesStore, usageStore } from "../store/state.js";
+import { usagePartsFromAnyStoreKey } from "../tenant.js";
 
 /**
  * Builds operational metrics and aggregate stats routes.
@@ -45,7 +40,8 @@ export function createMetricsRouter(): Router {
     const agents = new Set<string>();
     for (const [key, total] of usageStore.entries()) {
       totalRequests += total;
-      agents.add(key.split("::")[0]);
+      const parts = usagePartsFromAnyStoreKey(key);
+      if (parts) agents.add(parts.agent);
     }
     res.json({
       totalServices: servicesStore.size,
