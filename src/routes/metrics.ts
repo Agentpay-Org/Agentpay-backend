@@ -1,5 +1,5 @@
 import { Router, type Response } from "express";
-import { etagFor } from "../httpCache.js";
+import { renderHttpMetrics } from "../metrics.js";
 import { apiKeyStore, pauseState, servicesStore, usageStore } from "../store/state.js";
 import { scanUsageStore } from "../usageScan.js";
 
@@ -37,6 +37,7 @@ export function createMetricsRouter(): Router {
       "# HELP agentpay_paused 1 if the backend is paused, 0 otherwise.",
       "# TYPE agentpay_paused gauge",
       `agentpay_paused ${pauseState.paused ? 1 : 0}`,
+      ...renderHttpMetrics(),
     ];
     res.setHeader("Content-Type", "text/plain; version=0.0.4");
     res.send(lines.join("\n") + "\n");

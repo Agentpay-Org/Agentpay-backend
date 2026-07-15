@@ -118,22 +118,8 @@ files are ignored by Docker builds and must not be baked into image layers.
 - [Billing units and settlement semantics](docs/billing-units.md) explains
   stroops, `priceStroops`, `billedStroops`, `/api/v1/billing/*`, and why
   `POST /api/v1/settle` drains backend counters without moving funds.
-- [Security notes](docs/security.md) documents response-surface and export
-  hardening, including CSV formula-injection mitigation.
-
-## Identifier Rules
-
-`agent` and `serviceId` values are used in in-memory keys, path parameters,
-events, and exports, so they are restricted to unambiguous ASCII identifiers.
-Use only letters, numbers, `.`, `_`, and `-`.
-
-| Field       | Max length | Examples                |
-| ----------- | ---------- | ----------------------- |
-| `agent`     | 256 chars  | `agent_1`, `team.alpha` |
-| `serviceId` | 128 chars  | `svc-1`, `embed.v2`     |
-
-Values containing the internal `::` separator, whitespace, commas, newlines, or
-control characters are rejected with `400 invalid_request`.
+- [Metrics](docs/metrics.md) documents Prometheus gauges, HTTP counters,
+  duration histograms, and error counters exposed by `GET /api/v1/metrics`.
 
 ## Quickstart
 

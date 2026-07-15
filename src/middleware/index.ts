@@ -14,6 +14,7 @@ import {
   RATE_LIMIT_PER_WINDOW,
   RATE_LIMIT_WINDOW_MS,
 } from "../store/state.js";
+import { recordHttpRequest } from "../metrics.js";
 import type { AgentPayRequest } from "../types.js";
 
 /**
@@ -22,6 +23,7 @@ import type { AgentPayRequest } from "../types.js";
  */
 export function installPreRouteMiddleware(app: Application): void {
   app.use(createCorsMiddleware());
+  app.use(requestTimerMiddleware);
   app.use(express.json({ limit: "100kb" }));
   app.use(securityHeadersMiddleware);
   app.use(permissionsPolicyMiddleware);
@@ -258,7 +260,11 @@ function requestTimerMiddleware(req: Request, res: Response, next: NextFunction)
   }) as Response["writeHead"];
 
   res.on("finish", () => {
-    const ms = durationMs();
+    const ms = Number(process.hrtime.bigint() - startNs) / 1_000_000;
+    recordHttpRequest(req, res.statusCode, ms / 1000);
+    if (!res.headersSent) {
+      res.setHeader("Server-Timing", `app;dur=${ms.toFixed(1)}`);
+    }
     if (process.env.NODE_ENV !== "test") {
       console.log(
         JSON.stringify({
