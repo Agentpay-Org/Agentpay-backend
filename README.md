@@ -41,9 +41,17 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
 
    Server runs at `http://localhost:3001`. Try `GET /health` and `GET /api/v1/version`.
 
-   By default the server listens on port `3001`. Set `PORT` to choose another
-   port; when set, it must be an integer from `1` to `65535`. Invalid values
-   fail fast at startup instead of falling through to Node's listen handling.
+## Crash handling
+
+The production entrypoint handles `SIGTERM` and `SIGINT` with a graceful drain:
+the HTTP server stops accepting new connections, in-flight requests get up to
+10 seconds to finish, and the process exits with code `0` after a clean close.
+
+When the launched server receives an `unhandledRejection` or `uncaughtException`,
+AgentPay logs a structured `process_fault` record and reuses the same drain path
+with exit code `1`. A second signal or process fault during drain is ignored so
+the shutdown sequence cannot restart itself. If the drain timeout fires, the
+process exits with code `1`.
 
 ## Project structure
 
