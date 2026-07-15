@@ -104,10 +104,10 @@ export function createMetaRouter(): Router {
         "/api/v1/agents/{agent}/total": { get: { summary: "Lifetime total" } },
         "/api/v1/usage": { post: { summary: "Record usage" } },
         "/api/v1/usage/bulk": { post: { summary: "Batched record" } },
-        "/api/v1/usage/{agent}/{serviceId}": { get: { summary: "Read accumulator" } },
-        "/api/v1/usage/export.csv": { get: { summary: "Export usage as CSV" } },
-        "/api/v1/usage/export.json": { get: { summary: "Export usage as JSON" } },
-        "/api/v1/billing/total": { get: { summary: "Aggregate billing total" } },
+        "/api/v1/usage/{agent}/{serviceId}": {
+          get: { summary: "Read accumulator" },
+          delete: { summary: "Reset accumulator without billing" },
+        },
         "/api/v1/billing/{agent}/{serviceId}": { get: { summary: "Quote bill" } },
         "/api/v1/settle": { post: { summary: "Drain & quote bill" } },
         "/api/v1/api-keys": {

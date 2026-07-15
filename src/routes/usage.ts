@@ -145,8 +145,28 @@ export function createUsageRouter(): Router {
     res.json({ agent, serviceId, total });
   });
 
-  router.get("/api/v1/usage/export.csv", (req: Request, res: Response) => {
-    const tenantId = resolveTenantId(req);
+  /**
+   * Clears one recorded usage accumulator without producing billing output.
+   */
+  router.delete("/api/v1/usage/:agent/:serviceId", (req: Request, res: Response) => {
+    const { agent, serviceId } = req.params;
+    const requestId = getRequestId(req);
+    const key = usageKey(agent, serviceId);
+    if (!usageStore.has(key)) {
+      res.status(404).json({
+        error: "not_found",
+        message: `usage accumulator for ${agent}/${serviceId} was not recorded`,
+        requestId,
+      });
+      return;
+    }
+    const clearedTotal = usageStore.get(key) ?? 0;
+    usageStore.set(key, 0);
+    recordEvent("usage.reset", { agent, serviceId, clearedTotal });
+    res.json({ agent, serviceId, clearedTotal });
+  });
+
+  router.get("/api/v1/usage/export.csv", (_req, res: Response) => {
     const escape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
     const rows: string[] = ["agent,serviceId,total"];
     for (const [key, total] of usageStore.entries()) {

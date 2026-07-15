@@ -274,14 +274,15 @@ billedStroops }` plus `totalBilledStroops`. Agents with no outstanding usage
    }
    ```
 
-## Service rollups
+## Usage accumulator reset
 
-`GET /api/v1/services/:serviceId/usage` returns the outstanding request `total`
-for the service and an `agents` count. The `agents` value counts distinct agents
-with non-zero outstanding usage for that service. Agents whose accumulator has
-been settled back to zero are omitted from both that count and
-`GET /api/v1/services/:serviceId/agents`, while the `total` field keeps its
-existing outstanding-usage semantics.
+Use `DELETE /api/v1/usage/:agent/:serviceId` to correct a mis-recorded usage
+counter without generating a settlement or billed amount. The endpoint is a
+write, so it is blocked while the backend is paused. When the accumulator was
+recorded, the response returns the prior `clearedTotal`, sets the counter to
+zero, and appends a `usage.reset` audit event with `{ agent, serviceId,
+clearedTotal }`. Pairs that were never recorded return the standard
+`404 not_found` envelope.
 
 ## CI/CD
 
