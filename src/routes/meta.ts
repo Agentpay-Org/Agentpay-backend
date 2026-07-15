@@ -97,7 +97,10 @@ export function createMetaRouter(): Router {
           get: { summary: "List webhooks" },
           post: { summary: "Register webhook" },
         },
-        "/api/v1/webhooks/{id}": { delete: { summary: "Unregister webhook" } },
+        "/api/v1/webhooks/{id}": {
+          get: { summary: "Fetch one webhook" },
+          delete: { summary: "Unregister webhook" },
+        },
         "/api/v1/admin/pause": { post: { summary: "Pause writes" } },
         "/api/v1/admin/unpause": { post: { summary: "Resume" } },
         "/api/v1/admin/status": { get: { summary: "Read pause flag" } },

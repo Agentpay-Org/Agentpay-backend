@@ -56,6 +56,20 @@ export function createWebhooksRouter(): Router {
     res.json({ items });
   });
 
+  router.get("/api/v1/webhooks/:id", (req: Request, res: Response) => {
+    const { id } = req.params;
+    const hook = webhookStore.get(id);
+    if (!hook) {
+      res.status(404).json({
+        error: "not_found",
+        message: `webhook ${id} not registered`,
+        requestId: getRequestId(req),
+      });
+      return;
+    }
+    res.json({ id, ...hook });
+  });
+
   router.post("/api/v1/webhooks/:id/test", (req: Request, res: Response) => {
     const { id } = req.params;
     const requestId = getRequestId(req);

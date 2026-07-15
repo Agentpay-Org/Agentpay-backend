@@ -265,13 +265,13 @@ billedStroops }` plus `totalBilledStroops`. Agents with no outstanding usage
    }
    ```
 
-## Webhook Event Subscriptions
+## Webhook Reads
 
-Webhook registrations accept only the documented event taxonomy:
-`usage.recorded`, `usage.settled`, `webhook.test`, or the `*` wildcard.
-`POST /api/v1/webhooks` and `PATCH /api/v1/webhooks/:id` reject unknown event
-names with `400 invalid_request` and name the unsupported value in the message.
-This keeps misspelled subscriptions from being stored silently.
+Registered webhooks can be listed with `GET /api/v1/webhooks` or fetched
+individually with `GET /api/v1/webhooks/:id`. The single-webhook response uses
+the same `{ id, url, events, createdAt }` shape returned by each list item.
+Unknown or deleted webhook ids return `404 not_found` with the standard
+`requestId` envelope.
 
 ## CI/CD
 
