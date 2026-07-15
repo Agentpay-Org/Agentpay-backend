@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import compression from "compression";
 import express, {
   type Application,
   type NextFunction,
   type Request,
+  type RequestHandler,
   type Response,
 } from "express";
 import {
@@ -26,7 +28,7 @@ export function installPreRouteMiddleware(app: Application): void {
   app.use(express.json({ limit: "100kb" }));
   app.use(securityHeadersMiddleware);
   app.use(requestIdMiddleware);
-  app.use(requestTimerMiddleware);
+  app.use(createCompressionMiddleware());
 }
 
 /**
@@ -69,6 +71,43 @@ function createCorsMiddleware() {
     }
     next();
   };
+}
+
+const DEFAULT_COMPRESSION_THRESHOLD_BYTES = 1024;
+
+function compressionEnabled(value: string | undefined): boolean {
+  if (value === undefined || value.trim().length === 0) return true;
+  return !["0", "false", "off", "disabled"].includes(value.trim().toLowerCase());
+}
+
+function compressionThreshold(value: string | undefined): number {
+  if (value === undefined || value.trim().length === 0) {
+    return DEFAULT_COMPRESSION_THRESHOLD_BYTES;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return DEFAULT_COMPRESSION_THRESHOLD_BYTES;
+  }
+  return parsed;
+}
+
+/**
+ * Negotiates compression for large public responses. Metrics stay uncompressed
+ * so Prometheus-compatible content negotiation remains predictable, and callers
+ * can disable compression for deployments with reflected-secret risk.
+ */
+function createCompressionMiddleware(): RequestHandler {
+  if (!compressionEnabled(process.env.COMPRESSION)) {
+    return (_req, _res, next) => next();
+  }
+
+  return compression({
+    threshold: compressionThreshold(process.env.COMPRESSION_THRESHOLD_BYTES),
+    filter: (req, res) => {
+      if (req.path === "/api/v1/metrics") return false;
+      return compression.filter(req, res);
+    },
+  });
 }
 
 /** Adds the minimal hardening headers used by the original app. */
