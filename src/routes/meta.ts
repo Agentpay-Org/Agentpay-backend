@@ -49,6 +49,7 @@ export function createMetaRouter(): Router {
             "Admin pause/unpause, API keys, webhooks, event log.",
             "Bulk usage + bulk services, CSV/JSON exports.",
             "Metadata + disabled flag per service.",
+            "Billing and settlement reject unknown services instead of pricing at zero.",
           ],
         },
       ],

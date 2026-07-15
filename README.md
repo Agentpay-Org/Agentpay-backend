@@ -322,6 +322,8 @@ compression can amplify BREACH-style side channels.
    }
    ```
 
+   Unknown services return `404 not_found` instead of being priced at zero.
+
 6. Settle the bill and drain the accumulator.
 
    ```bash
@@ -343,11 +345,8 @@ compression can amplify BREACH-style side channels.
    }
    ```
 
-   To drain every outstanding service accumulator for one agent in a single
-   write, call `POST /api/v1/settle/bulk` with `{"agent":"agent-alpha"}`. The
-   response includes `items` with each `{ serviceId, requests, priceStroops,
-billedStroops }` plus `totalBilledStroops`. Agents with no outstanding usage
-   return an empty `items` array and `totalBilledStroops: 0`.
+   Settlement for an unknown service returns `404 not_found` and leaves the
+   outstanding usage accumulator unchanged.
 
 7. Confirm the accumulator is now zero.
 
