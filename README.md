@@ -95,19 +95,18 @@ API key for the metering flow until API-key enforcement lands. Add your own
 `X-Request-Id` header when you want to correlate client logs with backend
 responses. The backend echoes the value on success and structured errors.
 
-## Multi-tenancy
+Every request that passes through the API rate limiter includes client
+self-throttling headers:
 
-Service registry entries, disabled flags, metadata, usage counters, billing
-quotes, settlement, exports, and per-service rollups are scoped to the current
-tenant. A tenant is derived from a validated `X-API-Key` header when the key is
-present in the in-memory API key store.
+- `RateLimit-Limit`: the maximum requests allowed in the current window.
+- `RateLimit-Remaining`: the remaining requests for the caller after this
+  response.
+- `RateLimit-Reset`: seconds until the oldest in-window request expires and
+  capacity is restored.
 
-Requests without a recognized API key share one implicit development tenant.
-That keeps local no-auth demos working while still preventing a recognized API
-key from reading or mutating another tenant's services and usage. Cross-tenant
-service reads, price changes, metadata writes, disabled-state changes, deletes,
-and settlement attempts return `404 not_found` instead of `403` so service ids
-from other tenants are not enumerable.
+When the caller is limited, the `429 rate_limited` response also includes
+`Retry-After` with the same resolved seconds as `RateLimit-Reset`. These values
+are derived only from the caller's own in-memory bucket.
 
 Set a shell variable for the local base URL:
 

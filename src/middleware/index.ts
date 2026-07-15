@@ -120,16 +120,34 @@ function pauseGuardMiddleware(req: Request, res: Response, next: NextFunction): 
   });
 }
 
-/** In-process IP rate limiter matching the original 60/min behavior. */
+function rateLimitResetSeconds(bucket: number[], now: number): number {
+  const oldest = bucket[0] ?? now;
+  const millisUntilReset = oldest + RATE_LIMIT_WINDOW_MS - now;
+  return Math.max(1, Math.ceil(millisUntilReset / 1000));
+}
+
+function setRateLimitHeaders(
+  res: Response,
+  remaining: number,
+  resetSeconds: number
+): void {
+  res.setHeader("RateLimit-Limit", String(RATE_LIMIT_PER_WINDOW));
+  res.setHeader("RateLimit-Remaining", String(Math.max(0, remaining)));
+  res.setHeader("RateLimit-Reset", String(resetSeconds));
+}
+
+/** In-process IP rate limiter with standard client self-throttling headers. */
 function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (process.env.NODE_ENV === "test") return next();
   const ip = req.ip ?? req.socket.remoteAddress ?? "unknown";
   const now = Date.now();
-  const bucket = (rateBuckets.get(ip) ?? []).filter(
-    (t) => now - t < RATE_LIMIT_WINDOW_MS
-  );
+  const bucket = (rateBuckets.get(ip) ?? [])
+    .filter((t) => now - t < RATE_LIMIT_WINDOW_MS)
+    .sort((a, b) => a - b);
+  const resetSeconds = rateLimitResetSeconds(bucket, now);
   if (bucket.length >= RATE_LIMIT_PER_WINDOW) {
-    res.setHeader("Retry-After", "60");
+    setRateLimitHeaders(res, 0, resetSeconds);
+    res.setHeader("Retry-After", String(resetSeconds));
     res.status(429).json({
       error: "rate_limited",
       message: `more than ${RATE_LIMIT_PER_WINDOW} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s`,
@@ -138,6 +156,11 @@ function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): v
     return;
   }
   bucket.push(now);
+  setRateLimitHeaders(
+    res,
+    RATE_LIMIT_PER_WINDOW - bucket.length,
+    rateLimitResetSeconds(bucket, now)
+  );
   rateBuckets.set(ip, bucket);
   next();
 }
