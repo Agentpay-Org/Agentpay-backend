@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
-import { validateBody } from "../middleware/validate.js";
-import { requestBodySchemas } from "../schemas/requestBodies.js";
+import { parseIntParam } from "../queryParams.js";
 import {
   config,
   servicesDisabled,
@@ -228,11 +227,11 @@ export function createUsageRouter(): Router {
   );
 
   router.get("/api/v1/agents", (req: Request, res: Response) => {
-    const tenantId = resolveTenantId(req);
-    const limit = Math.min(
-      1000,
-      Math.max(1, Number((req.query.limit as string) ?? 200))
-    );
+    const limit = parseIntParam(req.query.limit, {
+      defaultValue: 200,
+      min: 1,
+      max: 1000,
+    });
     const seen = new Set<string>();
     for (const { agent } of scanUsageStore()) seen.add(agent);
     const agents = Array.from(seen).slice(0, limit);

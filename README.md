@@ -160,6 +160,23 @@ non-HTTP schemes are ignored. The wildcard `*` is rejected at startup; this API
 does not set `Access-Control-Allow-Credentials`, and deployments should list
 trusted origins explicitly instead of relying on wildcard reflection.
 
+## Query Parameters
+
+Numeric query parameters are parsed defensively. Malformed, `NaN`, infinite, or
+missing numeric values fall back to the endpoint default, while values below or
+above the supported range are clamped:
+
+| Endpoint family                       | Parameter | Default | Range            |
+| ------------------------------------- | --------- | ------- | ---------------- |
+| `GET /api/v1/agents`                  | `limit`   | `200`   | `1` to `1000`    |
+| `GET /api/v1/services`                | `limit`   | `200`   | `1` to `1000`    |
+| `GET /api/v1/services/:id/agents/top` | `limit`   | `10`    | `1` to `100`     |
+| `GET /api/v1/events`                  | `limit`   | `100`   | `1` to event cap |
+| `GET /api/v1/events`                  | `since`   | `0`     | `0` or higher    |
+
+This keeps bad input such as `?limit=abc` or `?since=abc` from propagating
+`NaN` into slices or timestamp filters.
+
 ## Quickstart
 
 Start a local backend on `http://localhost:3001` with the checked-in

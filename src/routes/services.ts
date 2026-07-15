@@ -1,6 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { validateBody } from "../middleware/validate.js";
-import { requestBodySchemas } from "../schemas/requestBodies.js";
+import { parseIntParam } from "../queryParams.js";
 import {
   config,
   servicesDisabled,
@@ -149,15 +148,12 @@ export function createServicesRouter(): Router {
     "/api/v1/services/:serviceId/agents/top",
     (req: Request, res: Response) => {
       const { serviceId } = req.params;
-      const tenantId = resolveTenantId(req);
-      if (!servicesStore.has(tenantServiceKey(tenantId, serviceId))) {
-        sendServiceNotFound(req, res, serviceId);
-        return;
-      }
-      const limit = Math.min(
-        100,
-        Math.max(1, Number((req.query.limit as string) ?? 10))
-      );
+      const limit = parseIntParam(req.query.limit, {
+        defaultValue: 10,
+        min: 1,
+        max: 100,
+      });
+      const suffix = `::${serviceId}`;
       const items: { agent: string; total: number }[] = [];
       for (const { agent, total } of scanByService(serviceId)) {
         items.push({ agent, total });
@@ -292,13 +288,11 @@ export function createServicesRouter(): Router {
     const tenantId = resolveTenantId(req);
     const prefix = typeof req.query.prefix === "string" ? req.query.prefix : "";
     const q = typeof req.query.q === "string" ? req.query.q.toLowerCase() : "";
-    const disabled = parseDisabledFilter(req.query.disabled);
-    const minPrice = parsePriceFilter(req.query.minPrice);
-    const maxPrice = parsePriceFilter(req.query.maxPrice);
-    const limit = Math.min(
-      1000,
-      Math.max(1, Number((req.query.limit as string) ?? 200))
-    );
+    const limit = parseIntParam(req.query.limit, {
+      defaultValue: 200,
+      min: 1,
+      max: 1000,
+    });
     const services: ServiceReadShape[] = [];
     for (const [storeKey, meta] of servicesStore.entries()) {
       const serviceId = serviceIdFromStoreKey(tenantId, storeKey);
