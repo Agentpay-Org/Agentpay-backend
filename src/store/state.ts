@@ -29,8 +29,14 @@ export const apiKeyStore = new Map<string, ApiKeyRecord>();
 /** Outstanding usage counters keyed by `${agent}::${serviceId}`. */
 export const usageStore = new Map<string, number>();
 
-/** Monotonic count of accepted usage requests for this process lifetime. */
-export const lifetimeRequests = { total: 0 };
+/**
+ * Cumulative process-local settlement counters.
+ * Stroops are stored as bigint and serialized as decimal strings for JSON.
+ */
+export const settlementCounters = {
+  settledStroopsTotal: 0n,
+  settlementsTotal: 0,
+};
 
 /** Builds the shared in-memory usage key for an agent/service pair. */
 export const usageKey = (agent: string, serviceId: string) => `${agent}::${serviceId}`;

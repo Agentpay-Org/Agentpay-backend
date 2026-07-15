@@ -238,11 +238,11 @@ BASE_URL=http://localhost:3001
    }
    ```
 
-   Metrics distinguish the outstanding counter from lifetime throughput:
-   `agentpay_usage_requests_total` and `/api/v1/stats.totalRequests` are the
-   current unsettled totals, while `agentpay_requests_recorded_total` and
-   `/api/v1/stats.lifetimeRequests` are monotonically increasing process-local
-   counters that are not reduced by settlement.
+   Settlement observability is cumulative: `/api/v1/metrics` exposes
+   `agentpay_settled_stroops_total` and `agentpay_settlements_total`, and
+   `/api/v1/stats` includes `settledStroopsTotal` plus `settlementsTotal`.
+   `settledStroopsTotal` is serialized as a decimal string so large stroop
+   totals do not lose precision in JSON clients.
 
 ## CI/CD
 

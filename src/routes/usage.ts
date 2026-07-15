@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
 import {
-  lifetimeRequests,
+  settlementCounters,
   servicesDisabled,
   servicesStore,
   usageKey,
@@ -22,11 +22,12 @@ type BillingTotalBreakdown = {
   unpricedRequests: number;
 };
 
-/** Records accepted usage volume without allowing the lifetime counter to wrap. */
-function incrementLifetimeRequests(requests: number) {
-  lifetimeRequests.total = Math.min(
+/** Records cumulative settlement throughput without per-agent labels. */
+function recordSettlementCounters(billedStroops: number) {
+  settlementCounters.settledStroopsTotal += BigInt(billedStroops);
+  settlementCounters.settlementsTotal = Math.min(
     Number.MAX_SAFE_INTEGER,
-    lifetimeRequests.total + requests
+    settlementCounters.settlementsTotal + 1
   );
 }
 
@@ -218,6 +219,7 @@ export function createUsageRouter(): Router {
     const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
     const billedStroops = requests * price;
     usageStore.set(key, 0);
+    recordSettlementCounters(billedStroops);
     recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
     res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
   });
