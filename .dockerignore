@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.github
+.env
+.env.*
+*.log
+.DS_Store
+coverage
+Dockerfile
+README.md
+docs
+src/**/*.test.ts
+**/*.test.ts
