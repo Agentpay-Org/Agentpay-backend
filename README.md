@@ -121,6 +121,15 @@ stale map entries for the lifetime of the process. Active buckets are preserved
 and still return the existing `429 rate_limited` response with `Retry-After`
 once the window limit is reached.
 
+## Runtime configuration
+
+`GET /api/v1/config` returns the current process-local runtime settings. Use
+`PATCH /api/v1/config` to update positive integer values such as
+`rateLimitPerWindow` and `rateLimitWindowMs` without restarting the backend.
+The in-process rate limiter reads those live values on every request, prunes
+request buckets with the active window length, and computes `Retry-After` from
+the active window.
+
 ## Quickstart
 
 Start a local backend on `http://localhost:3001` with the checked-in

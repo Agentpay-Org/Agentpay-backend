@@ -7,17 +7,8 @@ import express, {
   type RequestHandler,
   type Response,
 } from "express";
-import {
-  apiKeyStore,
-  pauseState,
-  rateBuckets,
-  RATE_LIMIT_PER_WINDOW,
-  RATE_LIMIT_WINDOW_MS,
-} from "../store/state.js";
-import { getRequestId, type AgentPayRequest } from "../types.js";
-
-export type RateLimitDecision =
-  { allowed: true } | { allowed: false; retryAfterSeconds: number };
+import { apiKeyStore, config, pauseState, rateBuckets } from "../store/state.js";
+import type { AgentPayRequest } from "../types.js";
 
 /**
  * Installs middleware that must run before the early admin/config/metrics
@@ -198,55 +189,22 @@ function pauseGuardMiddleware(req: Request, res: Response, next: NextFunction): 
   });
 }
 
-/** Drops rate-limit buckets whose newest hit has aged out of the active window. */
-export function pruneExpiredRateBuckets(
-  now = Date.now(),
-  windowMs = RATE_LIMIT_WINDOW_MS,
-  buckets = rateBuckets
-): number {
-  let pruned = 0;
-  for (const [ip, bucket] of buckets.entries()) {
-    const newest = bucket.at(-1);
-    if (newest === undefined || now - newest >= windowMs) {
-      buckets.delete(ip);
-      pruned++;
-    }
-  }
-  return pruned;
-}
-
-/** Records one rate-limit hit while pruning stale buckets opportunistically. */
-export function applyRateLimitHit(
-  ip: string,
-  now = Date.now(),
-  limit = RATE_LIMIT_PER_WINDOW,
-  windowMs = RATE_LIMIT_WINDOW_MS,
-  buckets = rateBuckets
-): RateLimitDecision {
-  pruneExpiredRateBuckets(now, windowMs, buckets);
-  const bucket = (buckets.get(ip) ?? []).filter((t) => now - t < windowMs);
-  if (bucket.length >= limit) {
-    buckets.set(ip, bucket);
-    return {
-      allowed: false,
-      retryAfterSeconds: Math.ceil(windowMs / 1000),
-    };
-  }
-  bucket.push(now);
-  buckets.set(ip, bucket);
-  return { allowed: true };
-}
-
-/** In-process IP rate limiter matching the original 60/min behavior. */
+/** In-process IP rate limiter backed by the live runtime config. */
 function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (process.env.NODE_ENV === "test") return next();
+  const rateLimitWindowMs = config.rateLimitWindowMs;
+  const rateLimitPerWindow = config.rateLimitPerWindow;
   const ip = req.ip ?? req.socket.remoteAddress ?? "unknown";
-  const decision = applyRateLimitHit(ip);
-  if (!decision.allowed) {
-    res.setHeader("Retry-After", String(decision.retryAfterSeconds));
+  const now = Date.now();
+  const bucket = (rateBuckets.get(ip) ?? []).filter((t) => now - t < rateLimitWindowMs);
+  if (bucket.length >= rateLimitPerWindow) {
+    res.setHeader(
+      "Retry-After",
+      String(Math.max(1, Math.ceil(rateLimitWindowMs / 1000)))
+    );
     res.status(429).json({
       error: "rate_limited",
-      message: `more than ${RATE_LIMIT_PER_WINDOW} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s`,
+      message: `more than ${rateLimitPerWindow} requests per ${rateLimitWindowMs / 1000}s`,
       requestId: (req as AgentPayRequest).id,
     });
     return;
