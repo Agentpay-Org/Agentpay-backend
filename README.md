@@ -133,12 +133,11 @@ BASE_URL=http://localhost:3001
    `invalid_item`, and later occurrences of a duplicate `serviceId` in the same
    batch report `duplicate_in_batch` without overwriting the first item.
 
-   Service listing is available at `GET /api/v1/services`. The list accepts
-   `prefix`, `q`, and `limit`, plus `disabled=true|false`,
-   `minPrice=<stroops>`, and `maxPrice=<stroops>`. Price filters are inclusive;
-   malformed price filters are ignored rather than rejected. The weak `ETag`
-   reflects the filtered response body, so clients can cache each filtered view
-   independently.
+   Numeric safety limits protect billing math from lossy JavaScript number
+   precision. A single usage item may record up to `1,000,000` requests, and a
+   service price may be up to `9,007,199,254` stroops. Bulk endpoints keep their
+   partial-success behavior and mark items outside those bounds as
+   `invalid_item`.
 
 2. Record usage for an agent.
 
