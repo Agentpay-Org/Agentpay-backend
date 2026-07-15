@@ -61,7 +61,11 @@ void describe("operational routes", () => {
   void it("reports metrics, stats, deep health, changelog, and OpenAPI metadata", async () => {
     const app = createApp();
     servicesStore.set("svc-meta", { priceStroops: 10 });
-    apiKeyStore.set("apk_abcdef", { label: "admin", createdAt: 1 });
+    apiKeyStore.set("hash-admin", {
+      label: "admin",
+      createdAt: 1,
+      prefix: "apk_abcd",
+    });
     usageStore.set("agent-meta::svc-meta", 3);
     pauseState.paused = true;
 

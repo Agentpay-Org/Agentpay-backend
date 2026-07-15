@@ -60,6 +60,7 @@ placeholders.
 agentpay-backend/
 ├── src/
 │   ├── index.ts          # Thin Express composition root that exports app
+│   ├── auth/             # API-key hashing, creation, and constant-time checks
 │   ├── events.ts         # Bounded in-memory audit event log helpers
 │   ├── middleware/       # CORS, security headers, request id, pause, rate limit
 │   ├── routes/           # Feature routers for admin, usage, services, keys, webhooks
@@ -144,8 +145,7 @@ npm run build
 npm start
 ```
 
-The API is currently open for local development and demos. You do not need an
-API key for the metering flow until API-key enforcement lands. Add your own
+The API is open by default for local development and demos. Add your own
 `X-Request-Id` header when you want to correlate client logs with backend
 responses. The backend echoes the value on success and structured errors.
 Write requests with a body must send `Content-Type: application/json`; otherwise
@@ -201,6 +201,35 @@ Write endpoints use shared request-body schemas before route handlers run. The
 same schema registry backs the OpenAPI request-body components, rejects unknown
 fields, and preserves the existing `400 invalid_request` response shape with a
 client `message` and `requestId`.
+
+### Authentication
+
+Set `REQUIRE_API_KEY=true` to require credentials on state-changing routes.
+`GET`, `HEAD`, and `OPTIONS` remain open for dashboards, health checks, and
+metadata readers. Non-admin write routes require a valid tenant key in the
+`X-API-Key` header:
+
+```bash
+curl -sS -X POST "$BASE_URL/api/v1/usage" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $AGENTPAY_API_KEY" \
+  -d '{"agent":"agent-alpha","serviceId":"embedding-v1","requests":3}'
+```
+
+Tenant keys are returned once from `POST /api/v1/api-keys`. The in-memory store
+keeps only a SHA-256 hash plus the public 8-character prefix, and
+`GET /api/v1/api-keys` never returns the live secret.
+
+Set `ADMIN_API_KEY` alongside `REQUIRE_API_KEY=true` for privileged writes.
+`POST /api/v1/admin/*` and API-key creation/revocation require this admin key
+instead of a tenant key:
+
+```bash
+curl -sS -X POST "$BASE_URL/api/v1/api-keys" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $ADMIN_API_KEY" \
+  -d '{"label":"ops"}'
+```
 
 Set a shell variable for the local base URL:
 

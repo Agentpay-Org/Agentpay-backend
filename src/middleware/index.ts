@@ -6,7 +6,7 @@ import express, {
   type RequestHandler,
   type Response,
 } from "express";
-import helmet from "helmet";
+import { timingSafeEqualSecret, verifyApiKey } from "../auth/apiKeys.js";
 import {
   apiKeyStore,
   pauseState,
@@ -26,45 +26,7 @@ export function installPreRouteMiddleware(app: Application): void {
   app.use(securityHeadersMiddleware);
   app.use(permissionsPolicyMiddleware);
   app.use(requestIdMiddleware);
-  app.use(createCompressionMiddleware());
-}
-
-/**
- * Converts TRUST_PROXY into Express' hop-count based trust proxy setting.
- * Boolean-like truthy values intentionally map to one trusted proxy hop.
- */
-export function resolveTrustProxySetting(
-  raw = process.env.TRUST_PROXY
-): false | number {
-  if (raw === undefined) return false;
-  const normalized = raw.trim().toLowerCase();
-  if (
-    normalized === "" ||
-    normalized === "false" ||
-    normalized === "0" ||
-    normalized === "off" ||
-    normalized === "no"
-  ) {
-    return false;
-  }
-  if (
-    normalized === "true" ||
-    normalized === "1" ||
-    normalized === "on" ||
-    normalized === "yes"
-  ) {
-    return 1;
-  }
-  const hopCount = Number(normalized);
-  if (Number.isInteger(hopCount) && hopCount > 0) {
-    return hopCount;
-  }
-  return false;
-}
-
-/** Applies the process trust-proxy setting before request middleware runs. */
-export function configureTrustProxy(app: Application): void {
-  app.set("trust proxy", resolveTrustProxySetting());
+  app.use(apiKeyAuthMiddleware);
 }
 
 /**
@@ -72,7 +34,6 @@ export function configureTrustProxy(app: Application): void {
  * the main API routes.
  */
 export function installRequestStateMiddleware(app: Application): void {
-  app.use(apiKeyRecognitionMiddleware);
   app.use(pauseGuardMiddleware);
   app.use(rateLimitMiddleware);
 }
@@ -162,53 +123,68 @@ function requestIdMiddleware(req: Request, res: Response, next: NextFunction): v
   next();
 }
 
-/**
- * Rejects non-JSON bodies on mutating endpoints with a clear 415 response.
- */
-function contentTypeGuardMiddleware(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void {
+/** Recognizes tenant keys and enforces them on writes when REQUIRE_API_KEY=true. */
+function apiKeyAuthMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const supplied = req.header("x-api-key");
+  const tenantKey = verifyApiKey(supplied, apiKeyStore);
+  if (tenantKey) {
+    (req as AgentPayRequest).apiKeyHash = tenantKey.hash;
+    (req as AgentPayRequest).apiKeyPrefix = tenantKey.prefix;
+  }
+
+  if (!requiresApiKey()) {
+    next();
+    return;
+  }
+
   const method = req.method.toUpperCase();
-  if (method !== "POST" && method !== "PUT" && method !== "PATCH") {
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
     next();
     return;
   }
 
-  const contentLength = req.header("content-length");
-  const transferEncoding = req.header("transfer-encoding");
-  const hasBody =
-    Boolean(transferEncoding) ||
-    (contentLength !== undefined && Number(contentLength) > 0);
-  if (!hasBody) {
-    next();
+  if (req.path.startsWith("/api/v1/admin/") || isApiKeyManagementPath(req.path)) {
+    if (isValidAdminKey(supplied)) {
+      (req as AgentPayRequest).adminApiKey = true;
+      next();
+      return;
+    }
+    sendUnauthorized(res, req, "valid ADMIN_API_KEY required for privileged writes");
     return;
   }
 
-  if (req.is("application/json") || req.is("application/*+json")) {
-    next();
+  if (!tenantKey) {
+    sendUnauthorized(res, req, "valid X-API-Key required for write request");
     return;
   }
 
-  res.status(415).json({
-    error: "unsupported_media_type",
-    message: "Content-Type must be application/json for write requests with a body",
-    requestId: getRequestId(req),
-  });
+  next();
 }
 
-/** Recognizes known API keys without requiring them. */
-function apiKeyRecognitionMiddleware(
-  req: Request,
-  _res: Response,
-  next: NextFunction
-): void {
-  const supplied = req.header("x-api-key");
-  if (typeof supplied === "string" && apiKeyStore.has(supplied)) {
-    (req as AgentPayRequest).apiKey = supplied;
-  }
-  next();
+function requiresApiKey(): boolean {
+  return process.env.REQUIRE_API_KEY?.toLowerCase() === "true";
+}
+
+function isApiKeyManagementPath(path: string): boolean {
+  return path === "/api/v1/api-keys" || path.startsWith("/api/v1/api-keys/");
+}
+
+function isValidAdminKey(supplied: string | undefined): boolean {
+  const adminKey = process.env.ADMIN_API_KEY;
+  return (
+    typeof supplied === "string" &&
+    typeof adminKey === "string" &&
+    adminKey.length > 0 &&
+    timingSafeEqualSecret(supplied, adminKey)
+  );
+}
+
+function sendUnauthorized(res: Response, req: Request, message: string): void {
+  res.status(401).json({
+    error: "unauthorized",
+    message,
+    requestId: (req as AgentPayRequest).id,
+  });
 }
 
 /** Blocks state-changing requests while the backend is paused. */

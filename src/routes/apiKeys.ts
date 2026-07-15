@@ -1,7 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import { validateBody } from "../middleware/validate.js";
-import { requestBodySchemas } from "../schemas/requestBodies.js";
+import { createApiKeyRecord } from "../auth/apiKeys.js";
 import { apiKeyStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
@@ -14,9 +12,9 @@ export function createApiKeysRouter(): Router {
   router.delete("/api/v1/api-keys/:prefix", (req: Request, res: Response) => {
     const { prefix } = req.params;
     let found: string | undefined;
-    for (const key of apiKeyStore.keys()) {
-      if (key.slice(0, 8) === prefix) {
-        found = key;
+    for (const [hash, meta] of apiKeyStore.entries()) {
+      if (meta.prefix === prefix) {
+        found = hash;
         break;
       }
     }
@@ -32,21 +30,13 @@ export function createApiKeysRouter(): Router {
     res.status(204).send();
   });
 
-  /** Lists API keys with bounded offset pagination without exposing full keys. */
-  router.get("/api/v1/api-keys", (req: Request, res: Response) => {
-    const { limit, offset } = parsePagination(req.query);
-    const allItems = Array.from(apiKeyStore.entries())
-      .sort(
-        ([keyA, metaA], [keyB, metaB]) =>
-          metaA.createdAt - metaB.createdAt || keyA.localeCompare(keyB)
-      )
-      .map(([key, meta]) => ({
-        prefix: key.slice(0, 8),
-        label: meta.label,
-        createdAt: meta.createdAt,
-      }));
-    const items = allItems.slice(offset, offset + limit);
-    res.json({ items, total: allItems.length });
+  router.get("/api/v1/api-keys", (_req, res: Response) => {
+    const items = Array.from(apiKeyStore.values()).map((meta) => ({
+      prefix: meta.prefix,
+      label: meta.label,
+      createdAt: meta.createdAt,
+    }));
+    res.json({ items });
   });
 
   router.post(
@@ -58,7 +48,10 @@ export function createApiKeysRouter(): Router {
       apiKeyStore.set(key, { label, createdAt: Date.now() });
       res.status(201).json({ key, label });
     }
-  );
+    const { key, hash, record } = createApiKeyRecord(label);
+    apiKeyStore.set(hash, record);
+    res.status(201).json({ key, label });
+  });
 
   return router;
 }

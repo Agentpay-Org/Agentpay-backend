@@ -11,17 +11,22 @@ import {
 import type { AgentPayRequest } from "./types.js";
 
 // We create a minimal test app that mounts the same middleware stack as the
-// real app to act as our "test-only assertion path" for observing req.apiKey.
+// real app to act as our test-only path for observing request API-key metadata.
 const testApp = express();
 installPreRouteMiddleware(testApp);
 installRequestStateMiddleware(testApp);
 testApp.get("/_test/api-key", (req, res) => {
-  res.json({ apiKey: (req as AgentPayRequest).apiKey });
+  res.json({
+    apiKeyHash: (req as AgentPayRequest).apiKeyHash,
+    apiKeyPrefix: (req as AgentPayRequest).apiKeyPrefix,
+  });
 });
 
 void describe("API Key Recognition Middleware", () => {
   beforeEach(() => {
     apiKeyStore.clear();
+    delete process.env.REQUIRE_API_KEY;
+    delete process.env.ADMIN_API_KEY;
   });
 
   void it("recognises a created key (case-insensitive header, exact value)", async () => {
@@ -35,23 +40,27 @@ void describe("API Key Recognition Middleware", () => {
 
     // 2. Assert it is recognised via exact case
     const resExact = await request(testApp).get("/_test/api-key").set("X-API-Key", key);
-    assert.strictEqual(resExact.body.apiKey, key);
+    assert.strictEqual(resExact.body.apiKeyPrefix, key.slice(0, 8));
+    assert.ok(resExact.body.apiKeyHash);
 
     // 3. Assert it is recognised via lowercase header
     const resLower = await request(testApp).get("/_test/api-key").set("x-api-key", key);
-    assert.strictEqual(resLower.body.apiKey, key);
+    assert.strictEqual(resLower.body.apiKeyPrefix, key.slice(0, 8));
+    assert.strictEqual(resLower.body.apiKeyHash, resExact.body.apiKeyHash);
   });
 
   void it("silently ignores an unknown key", async () => {
     const res = await request(testApp)
       .get("/_test/api-key")
       .set("X-API-Key", "apk_unknown123");
-    assert.strictEqual(res.body.apiKey, undefined);
+    assert.strictEqual(res.body.apiKeyHash, undefined);
+    assert.strictEqual(res.body.apiKeyPrefix, undefined);
   });
 
-  void it("leaves apiKey undefined if no key is provided", async () => {
+  void it("leaves API key metadata undefined if no key is provided", async () => {
     const res = await request(testApp).get("/_test/api-key");
-    assert.strictEqual(res.body.apiKey, undefined);
+    assert.strictEqual(res.body.apiKeyHash, undefined);
+    assert.strictEqual(res.body.apiKeyPrefix, undefined);
   });
 
   void it("silently ignores a revoked key", async () => {
@@ -67,7 +76,8 @@ void describe("API Key Recognition Middleware", () => {
 
     // Try to use the revoked key
     const res = await request(testApp).get("/_test/api-key").set("X-API-Key", key);
-    assert.strictEqual(res.body.apiKey, undefined);
+    assert.strictEqual(res.body.apiKeyHash, undefined);
+    assert.strictEqual(res.body.apiKeyPrefix, undefined);
   });
 
   void it("ensures the API remains open: a write with no X-API-Key still succeeds", async () => {
