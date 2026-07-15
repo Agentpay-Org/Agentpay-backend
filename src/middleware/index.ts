@@ -12,7 +12,7 @@ import {
   RATE_LIMIT_PER_WINDOW,
   RATE_LIMIT_WINDOW_MS,
 } from "../store/state.js";
-import type { AgentPayRequest } from "../types.js";
+import { getRequestId, type AgentPayRequest } from "../types.js";
 
 /**
  * Installs middleware that must run before the early admin/config/metrics
@@ -23,6 +23,7 @@ export function installPreRouteMiddleware(app: Application): void {
   app.use(express.json({ limit: "100kb" }));
   app.use(securityHeadersMiddleware);
   app.use(requestIdMiddleware);
+  app.use(contentTypeGuardMiddleware);
 }
 
 /**
@@ -92,6 +93,42 @@ function requestIdMiddleware(req: Request, res: Response, next: NextFunction): v
   (req as AgentPayRequest).id = id;
   res.setHeader("X-Request-Id", id);
   next();
+}
+
+/**
+ * Rejects non-JSON bodies on mutating endpoints with a clear 415 response.
+ */
+function contentTypeGuardMiddleware(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  const method = req.method.toUpperCase();
+  if (method !== "POST" && method !== "PUT" && method !== "PATCH") {
+    next();
+    return;
+  }
+
+  const contentLength = req.header("content-length");
+  const transferEncoding = req.header("transfer-encoding");
+  const hasBody =
+    Boolean(transferEncoding) ||
+    (contentLength !== undefined && Number(contentLength) > 0);
+  if (!hasBody) {
+    next();
+    return;
+  }
+
+  if (req.is("application/json") || req.is("application/*+json")) {
+    next();
+    return;
+  }
+
+  res.status(415).json({
+    error: "unsupported_media_type",
+    message: "Content-Type must be application/json for write requests with a body",
+    requestId: getRequestId(req),
+  });
 }
 
 /** Recognizes known API keys without requiring them. */
