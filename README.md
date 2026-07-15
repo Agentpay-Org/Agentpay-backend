@@ -365,18 +365,19 @@ compression can amplify BREACH-style side channels.
    }
    ```
 
-## Bulk usage validation
+## Error responses
 
-`POST /api/v1/usage/bulk` uses the same per-item validation as
-`POST /api/v1/usage`: `agent` must be non-empty and at most 256 characters,
-`serviceId` must be non-empty and at most 128 characters, and `requests` must
-be a positive integer. Invalid rows are reported as `{ ok: false, error:
-"invalid_item" }` without blocking valid rows in the same batch.
+Write endpoints return stable JSON envelopes for body-level failures. Malformed
+JSON is reported as `400 invalid_request` with the message
+`Malformed JSON in request body`; the raw parser message and request body are not
+echoed back to clients. Bodies over the 100 KiB JSON limit remain
+`413 payload_too_large`.
 
-Bulk usage also honors disabled services. Rows that target a disabled
-`serviceId` return `{ ok: false, error: "service_disabled" }` and do not update
-the usage accumulator, while other valid rows keep the partial-success
-contract.
+Unhandled server exceptions are logged with the request id, method, path, error
+message, and stack trace. Client-facing `500 internal_error` responses keep the
+request id for correlation but always use the generic message
+`Unexpected server error` so internal paths or secrets from exception messages
+are not leaked.
 
 ## CI/CD
 
