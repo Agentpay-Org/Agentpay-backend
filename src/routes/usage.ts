@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { isValidAgentId, isValidServiceId } from "../identifiers.js";
 import { recordEvent } from "../events.js";
 import { parseIntParam } from "../queryParams.js";
 import {
@@ -33,14 +34,26 @@ type BillingTotalBreakdown = {
   unpricedRequests: number;
 };
 
-const FORMULA_PREFIX_RE = /^[=+\-@\t\r]/;
+function invalidIdentifierMessage(kind: "agent" | "serviceId"): string {
+  const max = kind === "agent" ? 256 : 128;
+  return `${kind} must be 1-${max} chars using only letters, numbers, dot, underscore, or hyphen`;
+}
 
-/**
- * Escapes a CSV field and neutralizes spreadsheet formula prefixes.
- */
-export function escapeCsvField(value: string): string {
-  const safeValue = FORMULA_PREFIX_RE.test(value) ? `'${value}` : value;
-  return /[",\n\r]/.test(safeValue) ? `"${safeValue.replace(/"/g, '""')}"` : safeValue;
+function rejectInvalidPathIdentifier(
+  req: Request,
+  res: Response,
+  kind: "agent" | "serviceId",
+  value: unknown
+): boolean {
+  const valid = kind === "agent" ? isValidAgentId(value) : isValidServiceId(value);
+  if (valid) return false;
+
+  res.status(400).json({
+    error: "invalid_request",
+    message: invalidIdentifierMessage(kind),
+    requestId: getRequestId(req),
+  });
+  return true;
 }
 
 /**
@@ -56,13 +69,72 @@ export function createUsageRouter(): Router {
       const { agent, serviceId, requests } = req.body as UsageRecordBody;
       const requestId = getRequestId(req);
 
-      if (servicesDisabled.has(serviceId)) {
-        res.status(409).json({
-          error: "service_disabled",
-          message: `service ${serviceId} is currently disabled`,
-          requestId,
-        });
-        return;
+    if (!isValidAgentId(agent)) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: invalidIdentifierMessage("agent"),
+        requestId,
+      });
+      return;
+    }
+    if (!isValidServiceId(serviceId)) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: invalidIdentifierMessage("serviceId"),
+        requestId,
+      });
+      return;
+    }
+    if (typeof requests !== "number" || !Number.isInteger(requests) || requests <= 0) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: "requests must be a positive integer",
+        requestId,
+      });
+      return;
+    }
+
+    if (servicesDisabled.has(serviceId)) {
+      res.status(409).json({
+        error: "service_disabled",
+        message: `service ${serviceId} is currently disabled`,
+        requestId,
+      });
+      return;
+    }
+
+    const key = usageKey(agent, serviceId);
+    const prev = usageStore.get(key) ?? 0;
+    const total = Math.min(Number.MAX_SAFE_INTEGER, prev + requests);
+    usageStore.set(key, total);
+
+    recordEvent("usage.recorded", { agent, serviceId, requests, total });
+    res.status(201).json({ agent, serviceId, total });
+  });
+
+  router.post("/api/v1/usage/bulk", (req: Request, res: Response) => {
+    const requestId = getRequestId(req);
+    const { items } = req.body ?? {};
+    if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: "items must be a non-empty array of up to 100 entries",
+        requestId,
+      });
+      return;
+    }
+    const results: BulkUsageResult[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const { agent, serviceId, requests } = items[i] ?? {};
+      if (
+        !isValidAgentId(agent) ||
+        !isValidServiceId(serviceId) ||
+        typeof requests !== "number" ||
+        !Number.isInteger(requests) ||
+        requests <= 0
+      ) {
+        results.push({ index: i, ok: false, error: "invalid_item" });
+        continue;
       }
 
       const key = usageKey(agent, serviceId);
@@ -118,8 +190,13 @@ export function createUsageRouter(): Router {
 
   router.get("/api/v1/usage/:agent/:serviceId", (req: Request, res: Response) => {
     const { agent, serviceId } = req.params;
-    const tenantId = resolveTenantId(req);
-    const total = usageStore.get(usageKey(agent, serviceId, tenantId)) ?? 0;
+    if (
+      rejectInvalidPathIdentifier(req, res, "agent", agent) ||
+      rejectInvalidPathIdentifier(req, res, "serviceId", serviceId)
+    ) {
+      return;
+    }
+    const total = usageStore.get(usageKey(agent, serviceId)) ?? 0;
     res.json({ agent, serviceId, total });
   });
 
@@ -197,13 +274,10 @@ export function createUsageRouter(): Router {
 
   router.get("/api/v1/billing/:agent/:serviceId", (req: Request, res: Response) => {
     const { agent, serviceId } = req.params;
-    const service = servicesStore.get(serviceId);
-    if (!service) {
-      res.status(404).json({
-        error: "not_found",
-        message: `service ${serviceId} is not registered`,
-        requestId: getRequestId(req),
-      });
+    if (
+      rejectInvalidPathIdentifier(req, res, "agent", agent) ||
+      rejectInvalidPathIdentifier(req, res, "serviceId", serviceId)
+    ) {
       return;
     }
     const requests = usageStore.get(usageKey(agent, serviceId)) ?? 0;
@@ -217,18 +291,16 @@ export function createUsageRouter(): Router {
     });
   });
 
-  router.post(
-    "/api/v1/settle",
-    validateBody(requestBodySchemas.settle),
-    (req: Request, res: Response) => {
-      const { agent, serviceId } = req.body as SettleBody;
-      const key = usageKey(agent, serviceId);
-      const requests = usageStore.get(key) ?? 0;
-      const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
-      const billedStroops = requests * price;
-      usageStore.set(key, 0);
-      recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
-      res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
+  router.post("/api/v1/settle", (req: Request, res: Response) => {
+    const { agent, serviceId } = req.body ?? {};
+    const requestId = getRequestId(req);
+    if (!isValidAgentId(agent) || !isValidServiceId(serviceId)) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: "agent and serviceId must be safe identifiers",
+        requestId,
+      });
+      return;
     }
   );
 
@@ -246,6 +318,8 @@ export function createUsageRouter(): Router {
 
   router.get("/api/v1/agents/:agent/total", (req: Request, res: Response) => {
     const { agent } = req.params;
+    if (rejectInvalidPathIdentifier(req, res, "agent", agent)) return;
+    const prefix = `${agent}::`;
     let total = 0;
     for (const entry of scanByAgent(agent)) {
       total += entry.total;
@@ -255,6 +329,8 @@ export function createUsageRouter(): Router {
 
   router.get("/api/v1/agents/:agent/usage", (req: Request, res: Response) => {
     const { agent } = req.params;
+    if (rejectInvalidPathIdentifier(req, res, "agent", agent)) return;
+    const prefix = `${agent}::`;
     const items: { serviceId: string; total: number }[] = [];
     for (const { serviceId, total } of scanByAgent(agent)) {
       items.push({ serviceId, total });

@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { parseIntParam } from "../queryParams.js";
+import { isValidServiceId } from "../identifiers.js";
 import {
   config,
   servicesDisabled,
@@ -19,13 +19,24 @@ type ServiceReadShape = {
   owner?: string;
 };
 
-type BulkServicesBody = {
-  items: { serviceId?: unknown; priceStroops?: unknown }[];
-};
-type ServiceCreateBody = { serviceId: string; priceStroops: number };
-type ServiceMetadataBody = { description: string; owner: string };
-type ServiceDisabledBody = { disabled: boolean };
-type ServicePriceBody = { priceStroops: number };
+function invalidServiceIdMessage(): string {
+  return "serviceId must be 1-128 chars using only letters, numbers, dot, underscore, or hyphen";
+}
+
+function rejectInvalidServicePath(
+  req: Request,
+  res: Response,
+  serviceId: unknown
+): boolean {
+  if (isValidServiceId(serviceId)) return false;
+
+  res.status(400).json({
+    error: "invalid_request",
+    message: invalidServiceIdMessage(),
+    requestId: getRequestId(req),
+  });
+  return true;
+}
 
 /**
  * Builds the public read shape for service detail and list endpoints.
@@ -120,21 +131,48 @@ export function createServicesRouter(): Router {
       );
       res.status(201).json({ results });
     }
-  );
+    const serviceIdsAtBatchStart = new Set(servicesStore.keys());
+    const seenServiceIds = new Set<string>();
+    const results = items.map(
+      (it: { serviceId?: unknown; priceStroops?: unknown }, i: number) => {
+        const { serviceId, priceStroops } = it ?? {};
+        if (
+          !isValidServiceId(serviceId) ||
+          typeof priceStroops !== "number" ||
+          !Number.isInteger(priceStroops) ||
+          priceStroops < 0
+        ) {
+          return { index: i, ok: false, error: "invalid_item" };
+        }
+        if (seenServiceIds.has(serviceId)) {
+          return { index: i, ok: false, serviceId, error: "duplicate_in_batch" };
+        }
+        seenServiceIds.add(serviceId);
+        const isNew = !serviceIdsAtBatchStart.has(serviceId);
+        servicesStore.set(serviceId, { priceStroops });
+        return { index: i, ok: true, serviceId, priceStroops, created: isNew };
+      }
+    );
+    res.status(201).json({ results });
+  });
 
-  router.post(
-    "/api/v1/services",
-    validateBody(requestBodySchemas.serviceCreate),
-    (req: Request, res: Response) => {
-      const { serviceId, priceStroops } = req.body as ServiceCreateBody;
-      const isNew = !servicesStore.has(serviceId);
-      servicesStore.set(serviceId, { priceStroops });
-      res.status(isNew ? 201 : 200).json({ serviceId, priceStroops });
+  router.post("/api/v1/services", (req: Request, res: Response) => {
+    const { serviceId, priceStroops } = req.body ?? {};
+    const requestId = getRequestId(req);
+    if (!isValidServiceId(serviceId)) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: invalidServiceIdMessage(),
+        requestId,
+      });
+      return;
     }
   );
 
   router.get("/api/v1/services/:serviceId/usage", (req: Request, res: Response) => {
     const { serviceId } = req.params;
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
+    const suffix = `::${serviceId}`;
     let total = 0;
     let agents = 0;
     for (const entry of scanByService(serviceId)) {
@@ -148,11 +186,11 @@ export function createServicesRouter(): Router {
     "/api/v1/services/:serviceId/agents/top",
     (req: Request, res: Response) => {
       const { serviceId } = req.params;
-      const limit = parseIntParam(req.query.limit, {
-        defaultValue: 10,
-        min: 1,
-        max: 100,
-      });
+      if (rejectInvalidServicePath(req, res, serviceId)) return;
+      const limit = Math.min(
+        100,
+        Math.max(1, Number((req.query.limit as string) ?? 10))
+      );
       const suffix = `::${serviceId}`;
       const items: { agent: string; total: number }[] = [];
       for (const { agent, total } of scanByService(serviceId)) {
@@ -165,6 +203,8 @@ export function createServicesRouter(): Router {
 
   router.get("/api/v1/services/:serviceId/agents", (req: Request, res: Response) => {
     const { serviceId } = req.params;
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
+    const suffix = `::${serviceId}`;
     const items: { agent: string; total: number }[] = [];
     for (const { agent, total } of scanByService(serviceId)) {
       items.push({ agent, total });
@@ -175,9 +215,8 @@ export function createServicesRouter(): Router {
   /** Reads one service with its disabled state and optional metadata. */
   router.get("/api/v1/services/:serviceId", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const tenantId = resolveTenantId(req);
-    const storeKey = tenantServiceKey(tenantId, serviceId);
-    const meta = servicesStore.get(storeKey);
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
+    const meta = servicesStore.get(serviceId);
     if (!meta) {
       sendServiceNotFound(req, res, serviceId);
       return;
@@ -185,35 +224,24 @@ export function createServicesRouter(): Router {
     res.json(serviceReadShape(serviceId, storeKey, meta));
   });
 
-  router.put(
-    "/api/v1/services/:serviceId/metadata",
-    validateBody(requestBodySchemas.serviceMetadataPut),
-    (req: Request, res: Response) => {
-      const { serviceId } = req.params;
-      const requestId = getRequestId(req);
-      if (!servicesStore.has(serviceId)) {
-        res.status(404).json({
-          error: "not_found",
-          message: `service ${serviceId} is not registered`,
-          requestId,
-        });
-        return;
-      }
-      const { description, owner } = req.body as ServiceMetadataBody;
-      servicesMetadata.set(serviceId, { description, owner });
-      res.json({ serviceId, description, owner });
+  router.put("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
+    const { serviceId } = req.params;
+    const requestId = getRequestId(req);
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
+    if (!servicesStore.has(serviceId)) {
+      res.status(404).json({
+        error: "not_found",
+        message: `service ${serviceId} is not registered`,
+        requestId,
+      });
+      return;
     }
   );
 
   router.get("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const tenantId = resolveTenantId(req);
-    const storeKey = tenantServiceKey(tenantId, serviceId);
-    if (!servicesStore.has(storeKey)) {
-      sendServiceNotFound(req, res, serviceId);
-      return;
-    }
-    const meta = servicesMetadata.get(storeKey);
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
+    const meta = servicesMetadata.get(serviceId);
     if (!meta) {
       res.status(404).json({
         error: "not_found",
@@ -231,27 +259,8 @@ export function createServicesRouter(): Router {
     (req: Request, res: Response) => {
       const { serviceId } = req.params;
       const requestId = getRequestId(req);
-      const tenantId = resolveTenantId(req);
-      const storeKey = tenantServiceKey(tenantId, serviceId);
-      if (!servicesStore.has(storeKey)) {
-        sendServiceNotFound(req, res, serviceId);
-        return;
-      }
-      const { disabled } = req.body as ServiceDisabledBody;
-      if (disabled) servicesDisabled.add(serviceId);
-      else servicesDisabled.delete(serviceId);
-      res.json({ serviceId, disabled });
-    }
-  );
-
-  router.patch(
-    "/api/v1/services/:serviceId/price",
-    validateBody(requestBodySchemas.servicePricePatch),
-    (req: Request, res: Response) => {
-      const { serviceId } = req.params;
-      const requestId = getRequestId(req);
-      const meta = servicesStore.get(serviceId);
-      if (!meta) {
+      if (rejectInvalidServicePath(req, res, serviceId)) return;
+      if (!servicesStore.has(serviceId)) {
         res.status(404).json({
           error: "not_found",
           message: `service ${serviceId} is not registered`,
@@ -266,12 +275,46 @@ export function createServicesRouter(): Router {
     }
   );
 
+  router.patch("/api/v1/services/:serviceId/price", (req: Request, res: Response) => {
+    const { serviceId } = req.params;
+    const requestId = getRequestId(req);
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
+    const meta = servicesStore.get(serviceId);
+    if (!meta) {
+      res.status(404).json({
+        error: "not_found",
+        message: `service ${serviceId} is not registered`,
+        requestId,
+      });
+      return;
+    }
+    const { priceStroops } = req.body ?? {};
+    if (
+      typeof priceStroops !== "number" ||
+      !Number.isInteger(priceStroops) ||
+      priceStroops < 0
+    ) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: "priceStroops must be a non-negative integer",
+        requestId,
+      });
+      return;
+    }
+    meta.priceStroops = priceStroops;
+    servicesStore.set(serviceId, meta);
+    res.json({ serviceId, ...meta });
+  });
+
   router.delete("/api/v1/services/:serviceId", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const tenantId = resolveTenantId(req);
-    const storeKey = tenantServiceKey(tenantId, serviceId);
-    if (!servicesStore.has(storeKey)) {
-      sendServiceNotFound(req, res, serviceId);
+    if (rejectInvalidServicePath(req, res, serviceId)) return;
+    if (!servicesStore.has(serviceId)) {
+      res.status(404).json({
+        error: "not_found",
+        message: `service ${serviceId} is not registered`,
+        requestId: getRequestId(req),
+      });
       return;
     }
     servicesStore.delete(serviceId);
