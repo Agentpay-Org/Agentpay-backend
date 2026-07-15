@@ -365,24 +365,13 @@ compression can amplify BREACH-style side channels.
    }
    ```
 
-### Paginated list endpoints
+## Service deletion lifecycle
 
-`GET /api/v1/api-keys` and `GET /api/v1/webhooks` accept bounded
-`limit`/`offset` query parameters for deterministic polling and admin UIs.
-`limit` defaults to `200` and is capped at `1000`; `offset` defaults to `0`.
-
-Both endpoints return:
-
-```json
-{
-  "items": [],
-  "total": 0
-}
-```
-
-API-key list items keep the existing prefix-only security shape and never
-include the full key secret. Webhook list items keep the existing webhook record
-shape.
+`DELETE /api/v1/services/:serviceId` removes the service registration and any
+attached service metadata or disabled-state flag, then emits a
+`service.deleted` audit event. Usage accumulators for the deleted service are
+retained as historical metering records until they are settled or reset through
+the usage APIs.
 
 ## CI/CD
 

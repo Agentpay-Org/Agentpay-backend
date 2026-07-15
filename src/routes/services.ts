@@ -1,5 +1,11 @@
 import { Router, type Request, type Response } from "express";
-import { servicesDisabled, servicesMetadata, servicesStore } from "../store/state.js";
+import {
+  servicesDisabled,
+  servicesMetadata,
+  servicesStore,
+  usageStore,
+} from "../store/state.js";
+import { recordEvent } from "../events.js";
 import { getRequestId } from "../types.js";
 import { scanByService } from "../usageScan.js";
 
@@ -347,6 +353,7 @@ export function createServicesRouter(): Router {
     servicesStore.delete(serviceId);
     servicesMetadata.delete(serviceId);
     servicesDisabled.delete(serviceId);
+    recordEvent("service.deleted", { serviceId });
     res.status(204).send();
   });
 
