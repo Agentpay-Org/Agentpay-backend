@@ -20,6 +20,10 @@ export const DEFAULT_CONFIG: Record<string, number> = {
   rateLimitWindowMs: 60_000,
   bulkMaxItems: 100,
   eventLogCap: 10_000,
+  usageStoreMaxKeys: 100_000,
+  servicesStoreMaxKeys: 10_000,
+  webhookStoreMaxKeys: 10_000,
+  apiKeyStoreMaxKeys: 10_000,
 };
 
 /** Runtime-tunable in-memory configuration returned by /api/v1/config. */

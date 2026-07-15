@@ -7,7 +7,10 @@ const allowedConfigKeys = [
   "rateLimitPerWindow",
   "rateLimitWindowMs",
   "bulkMaxItems",
-  "eventLogCap",
+  "usageStoreMaxKeys",
+  "servicesStoreMaxKeys",
+  "webhookStoreMaxKeys",
+  "apiKeyStoreMaxKeys",
 ] as const;
 
 type WritableConfigKey = (typeof allowedConfigKeys)[number];

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import { MAX_PRICE_STROOPS, isSafePrice } from "../numericLimits.js";
+import { hasCapacityForNewKey, storeCapacityError } from "../store/caps.js";
 import {
   servicesDisabled,
   servicesMetadata,
@@ -126,7 +126,18 @@ export function createServicesRouter(): Router {
         }
         seenServiceIds.add(serviceId);
         const isNew = !serviceIdsAtBatchStart.has(serviceId);
-        servicesStore.set(tenantServiceKey(tenantId, serviceId), { priceStroops });
+        if (
+          isNew &&
+          !hasCapacityForNewKey(servicesStore, serviceId, "servicesStoreMaxKeys")
+        ) {
+          return {
+            index: i,
+            ok: false,
+            serviceId,
+            error: "store_capacity_exceeded",
+          };
+        }
+        servicesStore.set(serviceId, { priceStroops });
         return { index: i, ok: true, serviceId, priceStroops, created: isNew };
       }
     );
@@ -173,6 +184,15 @@ export function createServicesRouter(): Router {
     }
 
     const isNew = !servicesStore.has(serviceId);
+    if (
+      isNew &&
+      !hasCapacityForNewKey(servicesStore, serviceId, "servicesStoreMaxKeys")
+    ) {
+      res
+        .status(429)
+        .json(storeCapacityError("servicesStore", "servicesStoreMaxKeys", requestId));
+      return;
+    }
     servicesStore.set(serviceId, { priceStroops });
     if (inlineMetadata) {
       servicesMetadata.set(serviceId, inlineMetadata);
@@ -327,9 +347,9 @@ export function createServicesRouter(): Router {
       sendServiceNotFound(req, res, serviceId);
       return;
     }
-    servicesStore.delete(storeKey);
-    servicesDisabled.delete(storeKey);
-    servicesMetadata.delete(storeKey);
+    servicesStore.delete(serviceId);
+    servicesMetadata.delete(serviceId);
+    servicesDisabled.delete(serviceId);
     res.status(204).send();
   });
 
