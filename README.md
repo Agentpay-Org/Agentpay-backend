@@ -346,16 +346,24 @@ billedStroops }` plus `totalBilledStroops`. Agents with no outstanding usage
    }
    ```
 
-### Conditional read polling
+### Paginated list endpoints
 
-Polling-friendly read endpoints emit weak `ETag` validators. Clients can send
-the last value back with `If-None-Match`; unchanged responses return
-`304 Not Modified` with an empty body. This is supported for
-`GET /api/v1/services`, `GET /api/v1/events`, and `GET /api/v1/stats`.
+`GET /api/v1/api-keys` and `GET /api/v1/webhooks` accept bounded
+`limit`/`offset` query parameters for deterministic polling and admin UIs.
+`limit` defaults to `200` and is capped at `1000`; `offset` defaults to `0`.
 
-`GET /api/v1/events` scopes its validator to the effective `since`, `type`, and
-`limit` query values so different filters never share a validator just because
-their current response bodies are both empty.
+Both endpoints return:
+
+```json
+{
+  "items": [],
+  "total": 0
+}
+```
+
+API-key list items keep the existing prefix-only security shape and never
+include the full key secret. Webhook list items keep the existing webhook record
+shape.
 
 ## CI/CD
 
