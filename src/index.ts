@@ -21,6 +21,7 @@ const PORT = process.env.PORT ?? 3001;
  */
 function createApp(): Express {
   const app = express();
+  app.disable("x-powered-by");
 
   installPreRouteMiddleware(app);
 
