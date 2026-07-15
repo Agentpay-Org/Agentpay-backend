@@ -112,6 +112,15 @@ Current store sizes are visible in `/api/v1/stats` and Prometheus metrics:
 `agentpay_usage_keys_total`, `agentpay_services_total`,
 `agentpay_webhooks_total`, and `agentpay_api_keys_total`.
 
+## Rate limiting
+
+The backend keeps an in-process IP bucket map for the default 60 requests per
+60 seconds limiter. Each request opportunistically prunes buckets whose newest
+hit has aged out of the active window, so one-shot client IP churn does not leave
+stale map entries for the lifetime of the process. Active buckets are preserved
+and still return the existing `429 rate_limited` response with `Retry-After`
+once the window limit is reached.
+
 ## Quickstart
 
 Start a local backend on `http://localhost:3001` with the checked-in

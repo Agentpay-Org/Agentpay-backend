@@ -14,6 +14,9 @@ import {
 } from "../store/state.js";
 import { getRequestId, type AgentPayRequest } from "../types.js";
 
+export type RateLimitDecision =
+  { allowed: true } | { allowed: false; retryAfterSeconds: number };
+
 /**
  * Installs middleware that must run before the early admin/config/metrics
  * routes.
@@ -157,34 +160,52 @@ function pauseGuardMiddleware(req: Request, res: Response, next: NextFunction): 
   });
 }
 
-function rateLimitResetSeconds(bucket: number[], now: number): number {
-  const oldest = bucket[0] ?? now;
-  const millisUntilReset = oldest + RATE_LIMIT_WINDOW_MS - now;
-  return Math.max(1, Math.ceil(millisUntilReset / 1000));
+/** Drops rate-limit buckets whose newest hit has aged out of the active window. */
+export function pruneExpiredRateBuckets(
+  now = Date.now(),
+  windowMs = RATE_LIMIT_WINDOW_MS,
+  buckets = rateBuckets
+): number {
+  let pruned = 0;
+  for (const [ip, bucket] of buckets.entries()) {
+    const newest = bucket.at(-1);
+    if (newest === undefined || now - newest >= windowMs) {
+      buckets.delete(ip);
+      pruned++;
+    }
+  }
+  return pruned;
 }
 
-function setRateLimitHeaders(
-  res: Response,
-  remaining: number,
-  resetSeconds: number
-): void {
-  res.setHeader("RateLimit-Limit", String(RATE_LIMIT_PER_WINDOW));
-  res.setHeader("RateLimit-Remaining", String(Math.max(0, remaining)));
-  res.setHeader("RateLimit-Reset", String(resetSeconds));
+/** Records one rate-limit hit while pruning stale buckets opportunistically. */
+export function applyRateLimitHit(
+  ip: string,
+  now = Date.now(),
+  limit = RATE_LIMIT_PER_WINDOW,
+  windowMs = RATE_LIMIT_WINDOW_MS,
+  buckets = rateBuckets
+): RateLimitDecision {
+  pruneExpiredRateBuckets(now, windowMs, buckets);
+  const bucket = (buckets.get(ip) ?? []).filter((t) => now - t < windowMs);
+  if (bucket.length >= limit) {
+    buckets.set(ip, bucket);
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.ceil(windowMs / 1000),
+    };
+  }
+  bucket.push(now);
+  buckets.set(ip, bucket);
+  return { allowed: true };
 }
 
-/** In-process IP rate limiter with standard client self-throttling headers. */
+/** In-process IP rate limiter matching the original 60/min behavior. */
 function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (process.env.NODE_ENV === "test") return next();
   const ip = req.ip ?? req.socket.remoteAddress ?? "unknown";
-  const now = Date.now();
-  const bucket = (rateBuckets.get(ip) ?? [])
-    .filter((t) => now - t < RATE_LIMIT_WINDOW_MS)
-    .sort((a, b) => a - b);
-  const resetSeconds = rateLimitResetSeconds(bucket, now);
-  if (bucket.length >= RATE_LIMIT_PER_WINDOW) {
-    setRateLimitHeaders(res, 0, resetSeconds);
-    res.setHeader("Retry-After", String(resetSeconds));
+  const decision = applyRateLimitHit(ip);
+  if (!decision.allowed) {
+    res.setHeader("Retry-After", String(decision.retryAfterSeconds));
     res.status(429).json({
       error: "rate_limited",
       message: `more than ${RATE_LIMIT_PER_WINDOW} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s`,
@@ -192,13 +213,6 @@ function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): v
     });
     return;
   }
-  bucket.push(now);
-  setRateLimitHeaders(
-    res,
-    RATE_LIMIT_PER_WINDOW - bucket.length,
-    rateLimitResetSeconds(bucket, now)
-  );
-  rateBuckets.set(ip, bucket);
   next();
 }
 
