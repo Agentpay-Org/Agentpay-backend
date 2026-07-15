@@ -15,7 +15,7 @@ import {
   usagePartsFromStoreKey,
 } from "../tenant.js";
 import { getRequestId } from "../types.js";
-import { scanByAgent, scanUsageStore } from "../usageScan.js";
+import { addStroops, multiplyStroops } from "../util/stroops.js";
 
 type BulkUsageResult = {
   index: number;
@@ -29,8 +29,8 @@ type UsageItemValidation =
   | { ok: false; message: string };
 
 type BillingTotalBreakdown = {
-  totalStroops: number;
-  disabledStroops: number;
+  totalStroops: string;
+  disabledStroops: string;
   unpricedRequests: number;
 };
 
@@ -251,8 +251,8 @@ export function createUsageRouter(): Router {
   router.get("/api/v1/billing/total", (req: Request, res: Response) => {
     const tenantId = resolveTenantId(req);
     const breakdown: BillingTotalBreakdown = {
-      totalStroops: 0,
-      disabledStroops: 0,
+      totalStroops: "0",
+      disabledStroops: "0",
       unpricedRequests: 0,
     };
 
@@ -263,10 +263,13 @@ export function createUsageRouter(): Router {
         continue;
       }
 
-      const billedStroops = requests * service.priceStroops;
-      breakdown.totalStroops += billedStroops;
-      if (servicesDisabled.has(serviceKey)) {
-        breakdown.disabledStroops += billedStroops;
+      const billedStroops = multiplyStroops(requests, service.priceStroops);
+      breakdown.totalStroops = addStroops(breakdown.totalStroops, billedStroops);
+      if (servicesDisabled.has(serviceId)) {
+        breakdown.disabledStroops = addStroops(
+          breakdown.disabledStroops,
+          billedStroops
+        );
       }
     }
     res.json(breakdown);
@@ -287,7 +290,7 @@ export function createUsageRouter(): Router {
       serviceId,
       requests,
       priceStroops: price,
-      billedStroops: requests * price,
+      billedStroops: multiplyStroops(requests, price),
     });
   });
 
@@ -302,7 +305,14 @@ export function createUsageRouter(): Router {
       });
       return;
     }
-  );
+    const key = usageKey(agent, serviceId);
+    const requests = usageStore.get(key) ?? 0;
+    const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
+    const billedStroops = multiplyStroops(requests, price);
+    usageStore.set(key, 0);
+    recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
+    res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
+  });
 
   router.get("/api/v1/agents", (req: Request, res: Response) => {
     const limit = parseIntParam(req.query.limit, {

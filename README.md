@@ -339,7 +339,7 @@ a recognized key continue to use Express' trusted client IP. Only enable
      "serviceId": "embedding-v1",
      "requests": 10,
      "priceStroops": 25,
-     "billedStroops": 250
+     "billedStroops": "250"
    }
    ```
 
@@ -362,7 +362,7 @@ a recognized key continue to use Express' trusted client IP. Only enable
      "serviceId": "embedding-v1",
      "requests": 10,
      "priceStroops": 25,
-     "billedStroops": 250
+     "billedStroops": "250"
    }
    ```
 

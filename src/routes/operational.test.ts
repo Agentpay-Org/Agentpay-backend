@@ -89,6 +89,14 @@ void describe("operational routes", () => {
     const openapi = await request(app).get("/api/v1/openapi.json");
     assert.strictEqual(openapi.status, 200);
     assert.ok(openapi.body.paths["/api/v1/usage"]);
+    assert.strictEqual(
+      openapi.body.components.schemas.BillingQuote.properties.billedStroops.type,
+      "string"
+    );
+    assert.strictEqual(
+      openapi.body.components.schemas.BillingTotal.properties.totalStroops.type,
+      "string"
+    );
   });
 
   void it("creates, lists, and revokes API keys without exposing full keys on list", async () => {
