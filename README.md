@@ -231,53 +231,21 @@ BASE_URL=http://localhost:3001
    }
    ```
 
-## Admin reset
+## Runtime config
 
-`POST /api/v1/admin/reset` is a destructive maintenance endpoint for local
-tests and demos. It clears the process-local usage counters, service registry,
-service metadata, disabled-service flags, API keys, webhooks, audit events, rate
-buckets, pause flag, and runtime config.
+`GET /api/v1/config` returns the current in-memory runtime config. `PATCH
+/api/v1/config` accepts only these writable positive-integer keys and responds
+with `200 { config }` after a valid update:
 
-The endpoint is disabled by default. It only responds when
-`ALLOW_ADMIN_RESET` is explicitly set to `true`, `1`, `yes`, or `on`.
+| Key                  | Purpose                                    | Bound            |
+| -------------------- | ------------------------------------------ | ---------------- |
+| `rateLimitPerWindow` | Requests allowed per IP rate-limit window  | Positive integer |
+| `rateLimitWindowMs`  | Rate-limit window length in milliseconds   | Positive integer |
+| `bulkMaxItems`       | Maximum entries accepted by bulk endpoints | Positive integer |
+| `eventLogCap`        | Maximum retained in-memory audit events    | 1 through 100000 |
 
-Do not enable `ALLOW_ADMIN_RESET` in production unless a separate admin-auth
-layer protects this route. When disabled, the endpoint returns `404 not_found`.
-When enabled, it emits an `admin.reset` audit event before clearing state and
-returns a summary:
-
-```json
-{
-  "reset": true,
-  "cleared": {
-    "usage": 1,
-    "services": 1,
-    "servicesMetadata": 1,
-    "servicesDisabled": 1,
-    "apiKeys": 1,
-    "webhooks": 1,
-    "eventLog": 1,
-    "rateBuckets": 1,
-    "paused": true,
-    "config": {
-      "rateLimitPerWindow": 60,
-      "rateLimitWindowMs": 60000,
-      "bulkMaxItems": 100,
-      "eventLogCap": 10000
-    }
-  },
-  "paused": false,
-  "config": {
-    "rateLimitPerWindow": 60,
-    "rateLimitWindowMs": 60000,
-    "bulkMaxItems": 100,
-    "eventLogCap": 10000
-  },
-  "auditEvent": {
-    "type": "admin.reset"
-  }
-}
-```
+Unknown keys are rejected with `400 invalid_request` and an `unknownKeys` array,
+so misspelled config names do not look like successful no-op updates.
 
 ## CI/CD
 
