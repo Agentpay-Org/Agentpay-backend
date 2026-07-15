@@ -41,17 +41,18 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
 
    Server runs at `http://localhost:3001`. Try `GET /health` and `GET /api/v1/version`.
 
-## Crash handling
+## Configuration
 
-The production entrypoint handles `SIGTERM` and `SIGINT` with a graceful drain:
-the HTTP server stops accepting new connections, in-flight requests get up to
-10 seconds to finish, and the process exits with code `0` after a clean close.
+The backend reads these environment variables at runtime. For local development,
+copy [`.env.example`](.env.example) to `.env` and adjust values as needed. The
+real `.env` files stay ignored by git; `.env.example` contains only safe
+placeholders.
 
-When the launched server receives an `unhandledRejection` or `uncaughtException`,
-AgentPay logs a structured `process_fault` record and reuses the same drain path
-with exit code `1`. A second signal or process fault during drain is ignored so
-the shutdown sequence cannot restart itself. If the drain timeout fires, the
-process exits with code `1`.
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `PORT` | `3001` | HTTP listen port used by `src/index.ts` when the server starts. |
+| `CORS_ALLOWED_ORIGINS` | empty | Comma-separated allowlist for browser CORS origins. When empty, the backend does not emit `Access-Control-Allow-Origin`; when an incoming `Origin` exactly matches an entry, the middleware echoes that origin and related CORS headers. |
+| `NODE_ENV` | unset | Runtime mode. Set to `test` only for automated tests; in test mode the in-process rate limiter is skipped and per-request JSON logs are suppressed. |
 
 ## Project structure
 
