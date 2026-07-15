@@ -14,8 +14,11 @@ export type WebhookRecord = { url: string; events: string[]; createdAt: number }
 /** Mirrors the on-chain pause flag for write-gated endpoints. */
 export const pauseState = { paused: false };
 
-/** Default process-local runtime config values. */
-export const DEFAULT_CONFIG: Record<string, number> = {
+/** Upper bound for runtime bulk request sizing to avoid memory-exhaustion batches. */
+export const BULK_MAX_ITEMS_LIMIT = 1_000;
+
+/** Runtime-tunable in-memory configuration returned by /api/v1/config. */
+export const config: Record<string, number> = {
   rateLimitPerWindow: 60,
   rateLimitWindowMs: 60_000,
   bulkMaxItems: 100,

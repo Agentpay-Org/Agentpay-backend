@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import {
+  config,
   servicesDisabled,
   servicesMetadata,
   servicesStore,
@@ -83,15 +84,16 @@ function serviceAgentUsage(serviceId: string): ServiceAgentUsage {
 export function createServicesRouter(): Router {
   const router = Router();
 
-  /** Registers up to 50 services while rejecting duplicate ids in the same batch. */
+  /** Registers up to the runtime bulk limit while rejecting duplicate ids. */
   router.post("/api/v1/services/bulk", (req: Request, res: Response) => {
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
     const { items } = req.body ?? {};
-    if (!Array.isArray(items) || items.length === 0 || items.length > 50) {
+    const limit = config.bulkMaxItems;
+    if (!Array.isArray(items) || items.length === 0 || items.length > limit) {
       res.status(400).json({
         error: "invalid_request",
-        message: "items must be 1-50 entries",
+        message: `items must be a non-empty array of up to ${limit} entries`,
         requestId,
       });
       return;
