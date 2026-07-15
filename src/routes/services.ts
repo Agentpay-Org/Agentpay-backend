@@ -1,20 +1,7 @@
 import { Router, type Request, type Response } from "express";
-import { etagFor } from "../httpCache.js";
-import {
-  servicesDisabled,
-  servicesMetadata,
-  servicesStore,
-  type ServiceMetadataDto,
-  usageStore,
-} from "../store/state.js";
-import {
-  resolveTenantId,
-  serviceIdFromStoreKey,
-  tenantServiceKey,
-  usagePartsFromStoreKey,
-} from "../tenant.js";
+import { servicesDisabled, servicesMetadata, servicesStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
-import { isSafePrice, MAX_PRICE_STROOPS } from "../validation.js";
+import { scanByService } from "../usageScan.js";
 
 type ServiceReadShape = {
   serviceId: string;
@@ -203,8 +190,13 @@ export function createServicesRouter(): Router {
 
   router.get("/api/v1/services/:serviceId/usage", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const rollup = serviceAgentUsage(serviceId);
-    res.json({ serviceId, total: rollup.total, agents: rollup.items.length });
+    let total = 0;
+    let agents = 0;
+    for (const entry of scanByService(serviceId)) {
+      total += entry.total;
+      agents++;
+    }
+    res.json({ serviceId, total, agents });
   });
 
   router.get(
@@ -220,7 +212,10 @@ export function createServicesRouter(): Router {
         100,
         Math.max(1, Number((req.query.limit as string) ?? 10))
       );
-      const { items } = serviceAgentUsage(serviceId);
+      const items: { agent: string; total: number }[] = [];
+      for (const { agent, total } of scanByService(serviceId)) {
+        items.push({ agent, total });
+      }
       items.sort((a, b) => b.total - a.total);
       res.json({ serviceId, items: items.slice(0, limit) });
     }
@@ -228,7 +223,10 @@ export function createServicesRouter(): Router {
 
   router.get("/api/v1/services/:serviceId/agents", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const { items } = serviceAgentUsage(serviceId);
+    const items: { agent: string; total: number }[] = [];
+    for (const { agent, total } of scanByService(serviceId)) {
+      items.push({ agent, total });
+    }
     res.json({ serviceId, items });
   });
 

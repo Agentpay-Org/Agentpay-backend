@@ -1,6 +1,7 @@
 import { Router, type Response } from "express";
 import { etagFor } from "../httpCache.js";
 import { apiKeyStore, pauseState, servicesStore, usageStore } from "../store/state.js";
+import { scanUsageStore } from "../usageScan.js";
 
 /**
  * Builds operational metrics and aggregate stats routes.
@@ -44,10 +45,9 @@ export function createMetricsRouter(): Router {
   router.get("/api/v1/stats", (req, res: Response) => {
     let totalRequests = 0;
     const agents = new Set<string>();
-    for (const [key, total] of usageStore.entries()) {
+    for (const { agent, total } of scanUsageStore()) {
       totalRequests += total;
-      const parts = usagePartsFromAnyStoreKey(key);
-      if (parts) agents.add(parts.agent);
+      agents.add(agent);
     }
     const bodyShape = {
       totalServices: servicesStore.size,
