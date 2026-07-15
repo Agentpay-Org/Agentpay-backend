@@ -36,16 +36,16 @@ export function installRequestStateMiddleware(app: Application): void {
  * CORS allowlist middleware backed by CORS_ALLOWED_ORIGINS.
  */
 function createCorsMiddleware() {
-  const corsAllowed = (process.env.CORS_ALLOWED_ORIGINS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const corsAllowed = parseCorsOrigins(process.env.CORS_ALLOWED_ORIGINS);
 
   return (req: Request, res: Response, next: NextFunction) => {
     const origin = req.header("origin");
-    if (origin && corsAllowed.includes(origin)) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Vary", "Origin");
+    if (origin) {
+      res.vary("Origin");
+    }
+    const normalizedOrigin = origin ? normalizeCorsOrigin(origin) : undefined;
+    if (normalizedOrigin && corsAllowed.has(normalizedOrigin)) {
+      res.setHeader("Access-Control-Allow-Origin", normalizedOrigin);
       res.setHeader(
         "Access-Control-Allow-Methods",
         "GET,POST,PUT,PATCH,DELETE,OPTIONS"
@@ -64,41 +64,41 @@ function createCorsMiddleware() {
   };
 }
 
-const DEFAULT_COMPRESSION_THRESHOLD_BYTES = 1024;
-
-function compressionEnabled(value: string | undefined): boolean {
-  if (value === undefined || value.trim().length === 0) return true;
-  return !["0", "false", "off", "disabled"].includes(value.trim().toLowerCase());
-}
-
-function compressionThreshold(value: string | undefined): number {
-  if (value === undefined || value.trim().length === 0) {
-    return DEFAULT_COMPRESSION_THRESHOLD_BYTES;
-  }
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    return DEFAULT_COMPRESSION_THRESHOLD_BYTES;
-  }
-  return parsed;
-}
-
 /**
- * Negotiates compression for large public responses. Metrics stay uncompressed
- * so Prometheus-compatible content negotiation remains predictable, and callers
- * can disable compression for deployments with reflected-secret risk.
+ * Parses configured CORS origins into canonical scheme://host[:port] entries.
  */
-function createCompressionMiddleware(): RequestHandler {
-  if (!compressionEnabled(process.env.COMPRESSION)) {
-    return (_req, _res, next) => next();
-  }
+function parseCorsOrigins(raw: string | undefined): Set<string> {
+  const origins = new Set<string>();
+  for (const entry of (raw ?? "").split(",")) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    if (trimmed === "*") {
+      throw new Error(
+        "CORS_ALLOWED_ORIGINS wildcard '*' is not supported; list explicit http(s) origins"
+      );
+    }
 
-  return compression({
-    threshold: compressionThreshold(process.env.COMPRESSION_THRESHOLD_BYTES),
-    filter: (req, res) => {
-      if (req.path === "/api/v1/metrics") return false;
-      return compression.filter(req, res);
-    },
-  });
+    const normalized = normalizeCorsOrigin(trimmed);
+    if (normalized) {
+      origins.add(normalized);
+    } else {
+      console.warn(
+        `Ignoring malformed CORS origin in CORS_ALLOWED_ORIGINS: ${trimmed}`
+      );
+    }
+  }
+  return origins;
+}
+
+function normalizeCorsOrigin(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    if (url.pathname !== "/" || url.search || url.hash) return undefined;
+    return url.origin.toLowerCase();
+  } catch {
+    return undefined;
+  }
 }
 
 /** Adds the minimal hardening headers used by the original app. */

@@ -145,6 +145,21 @@ Invalid, zero, negative, or decimal override values fall back to the defaults.
 `HEADERS_TIMEOUT_MS` is raised to at least `KEEPALIVE_TIMEOUT_MS` so keep-alive
 reuse does not violate Node's timeout invariant.
 
+## CORS Configuration
+
+Set `CORS_ALLOWED_ORIGINS` to a comma-separated list of explicit HTTP(S)
+origins when browser clients need cross-origin access:
+
+```bash
+CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
+```
+
+Origins are matched after trimming whitespace, lowercasing scheme/host, and
+removing a trailing slash. Entries with paths, query strings, fragments, or
+non-HTTP schemes are ignored. The wildcard `*` is rejected at startup; this API
+does not set `Access-Control-Allow-Credentials`, and deployments should list
+trusted origins explicitly instead of relying on wildcard reflection.
+
 ## Quickstart
 
 Start a local backend on `http://localhost:3001` with the checked-in
