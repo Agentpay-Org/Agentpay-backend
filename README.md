@@ -365,13 +365,18 @@ compression can amplify BREACH-style side channels.
    }
    ```
 
-## Service deletion lifecycle
+## Bulk usage validation
 
-`DELETE /api/v1/services/:serviceId` removes the service registration and any
-attached service metadata or disabled-state flag, then emits a
-`service.deleted` audit event. Usage accumulators for the deleted service are
-retained as historical metering records until they are settled or reset through
-the usage APIs.
+`POST /api/v1/usage/bulk` uses the same per-item validation as
+`POST /api/v1/usage`: `agent` must be non-empty and at most 256 characters,
+`serviceId` must be non-empty and at most 128 characters, and `requests` must
+be a positive integer. Invalid rows are reported as `{ ok: false, error:
+"invalid_item" }` without blocking valid rows in the same batch.
+
+Bulk usage also honors disabled services. Rows that target a disabled
+`serviceId` return `{ ok: false, error: "service_disabled" }` and do not update
+the usage accumulator, while other valid rows keep the partial-success
+contract.
 
 ## CI/CD
 
