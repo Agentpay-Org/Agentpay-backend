@@ -25,6 +25,23 @@ type ServiceReadShape = {
   owner?: string;
 };
 
+type ServiceAgentUsage = { agent: string; total: number };
+
+/** Sorts service consumers by usage, then by agent id for stable page boundaries. */
+function compareServiceAgents(a: ServiceAgentUsage, b: ServiceAgentUsage): number {
+  const totalDiff = b.total - a.total;
+  if (totalDiff !== 0) {
+    return totalDiff;
+  }
+  if (a.agent < b.agent) {
+    return -1;
+  }
+  if (a.agent > b.agent) {
+    return 1;
+  }
+  return 0;
+}
+
 /**
  * Builds the public read shape for service detail and list endpoints.
  */
@@ -185,32 +202,30 @@ export function createServicesRouter(): Router {
         100,
         Math.max(1, Number((req.query.limit as string) ?? 10))
       );
-      const items: { agent: string; total: number }[] = [];
+      const suffix = `::${serviceId}`;
+      const items: ServiceAgentUsage[] = [];
       for (const [key, total] of usageStore.entries()) {
         const parts = usagePartsFromStoreKey(tenantId, key);
         if (parts?.serviceId === serviceId) {
           items.push({ agent: parts.agent, total });
         }
       }
-      items.sort((a, b) => b.total - a.total);
+      items.sort(compareServiceAgents);
       res.json({ serviceId, items: items.slice(0, limit) });
     }
   );
 
   router.get("/api/v1/services/:serviceId/agents", (req: Request, res: Response) => {
     const { serviceId } = req.params;
-    const tenantId = resolveTenantId(req);
-    if (!servicesStore.has(tenantServiceKey(tenantId, serviceId))) {
-      sendServiceNotFound(req, res, serviceId);
-      return;
-    }
-    const items: { agent: string; total: number }[] = [];
+    const suffix = `::${serviceId}`;
+    const items: ServiceAgentUsage[] = [];
     for (const [key, total] of usageStore.entries()) {
       const parts = usagePartsFromStoreKey(tenantId, key);
       if (parts?.serviceId === serviceId) {
         items.push({ agent: parts.agent, total });
       }
     }
+    items.sort(compareServiceAgents);
     res.json({ serviceId, items });
   });
 

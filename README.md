@@ -265,13 +265,13 @@ billedStroops }` plus `totalBilledStroops`. Agents with no outstanding usage
    }
    ```
 
-## Webhook Reads
+## Service Agent Ordering
 
-Registered webhooks can be listed with `GET /api/v1/webhooks` or fetched
-individually with `GET /api/v1/webhooks/:id`. The single-webhook response uses
-the same `{ id, url, events, createdAt }` shape returned by each list item.
-Unknown or deleted webhook ids return `404 not_found` with the standard
-`requestId` envelope.
+`GET /api/v1/services/:serviceId/agents/top` and
+`GET /api/v1/services/:serviceId/agents` order consumers by descending total
+requests. When two agents have the same total, the response breaks ties by
+ascending agent id so repeated reads and paginated top-N boundaries stay
+deterministic.
 
 ## CI/CD
 
