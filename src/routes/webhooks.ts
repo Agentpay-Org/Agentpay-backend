@@ -5,28 +5,41 @@ import { parsePagination } from "../pagination.js";
 import { webhookStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
-const SUBSCRIBABLE_EVENT_TYPES = new Set<string>([...KNOWN_EVENT_TYPES, "*"]);
+export type WebhookValidationResult<T> =
+  { ok: true; value: T } | { ok: false; message: string };
 
-function readWebhookBody(req: Request): { url?: unknown; events?: unknown } {
-  const body: unknown = req.body;
-  if (!body || typeof body !== "object") {
-    return {};
+/**
+ * Validates the URL rule shared by webhook create and patch routes.
+ */
+export function validateWebhookUrl(url: unknown): WebhookValidationResult<string> {
+  if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) {
+    return {
+      ok: false,
+      message: "url must be an http(s) URL up to 2048 chars",
+    };
   }
-  const fields = body as Record<string, unknown>;
-  return { url: fields.url, events: fields.events };
+
+  return { ok: true, value: url };
 }
 
-function isNonEmptyStringArray(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) &&
-    value.length > 0 &&
-    value.every((entry) => typeof entry === "string")
-  );
-}
+/**
+ * Validates the event subscription rule shared by webhook create and patch routes.
+ */
+export function validateWebhookEvents(
+  events: unknown
+): WebhookValidationResult<string[]> {
+  if (
+    !Array.isArray(events) ||
+    events.length === 0 ||
+    events.some((event) => typeof event !== "string")
+  ) {
+    return {
+      ok: false,
+      message: "events must be a non-empty array of strings",
+    };
+  }
 
-/** Returns the first webhook event name outside the documented taxonomy. */
-function findUnknownWebhookEvent(events: string[]): string | undefined {
-  return events.find((event) => !SUBSCRIBABLE_EVENT_TYPES.has(event));
+  return { ok: true, value: events as string[] };
 }
 
 /**
@@ -109,35 +122,28 @@ export function createWebhooksRouter(): Router {
     }
     const { url, events } = readWebhookBody(req);
     if (url !== undefined) {
-      if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) {
+      const validatedUrl = validateWebhookUrl(url);
+      if (!validatedUrl.ok) {
         res.status(400).json({
           error: "invalid_request",
-          message: "url must be an http(s) URL up to 2048 chars",
+          message: validatedUrl.message,
           requestId,
         });
         return;
       }
-      existing.url = url;
+      existing.url = validatedUrl.value;
     }
     if (events !== undefined) {
-      if (!isNonEmptyStringArray(events)) {
+      const validatedEvents = validateWebhookEvents(events);
+      if (!validatedEvents.ok) {
         res.status(400).json({
           error: "invalid_request",
-          message: "events must be a non-empty array of strings",
+          message: validatedEvents.message,
           requestId,
         });
         return;
       }
-      const unknownEvent = findUnknownWebhookEvent(events);
-      if (unknownEvent) {
-        res.status(400).json({
-          error: "invalid_request",
-          message: `unknown webhook event: ${unknownEvent}`,
-          requestId,
-        });
-        return;
-      }
-      existing.events = events;
+      existing.events = validatedEvents.value;
     }
     webhookStore.set(id, existing);
     res.json({ id, ...existing });
@@ -146,18 +152,20 @@ export function createWebhooksRouter(): Router {
   router.post("/api/v1/webhooks", (req: Request, res: Response) => {
     const { url, events } = readWebhookBody(req);
     const requestId = getRequestId(req);
-    if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) {
+    const validatedUrl = validateWebhookUrl(url);
+    if (!validatedUrl.ok) {
       res.status(400).json({
         error: "invalid_request",
-        message: "url must be an http(s) URL up to 2048 chars",
+        message: validatedUrl.message,
         requestId,
       });
       return;
     }
-    if (!isNonEmptyStringArray(events)) {
+    const validatedEvents = validateWebhookEvents(events);
+    if (!validatedEvents.ok) {
       res.status(400).json({
         error: "invalid_request",
-        message: "events must be a non-empty array of strings",
+        message: validatedEvents.message,
         requestId,
       });
       return;
@@ -172,14 +180,16 @@ export function createWebhooksRouter(): Router {
       return;
     }
     const id = `wh_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
-    if (!hasCapacityForNewKey(webhookStore, id, "webhookStoreMaxKeys")) {
-      res
-        .status(429)
-        .json(storeCapacityError("webhookStore", "webhookStoreMaxKeys", requestId));
-      return;
-    }
-    webhookStore.set(id, { url, events, createdAt: Date.now() });
-    res.status(201).json({ id, url, events });
+    webhookStore.set(id, {
+      url: validatedUrl.value,
+      events: validatedEvents.value,
+      createdAt: Date.now(),
+    });
+    res.status(201).json({
+      id,
+      url: validatedUrl.value,
+      events: validatedEvents.value,
+    });
   });
 
   return router;
