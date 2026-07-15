@@ -1,6 +1,7 @@
 import express from "express";
 import type { Server } from "node:http";
 import {
+  configureTrustProxy,
   installPreRouteMiddleware,
   installRequestStateMiddleware,
 } from "./middleware/index.js";
@@ -116,6 +117,7 @@ function createApp(): Express {
   const app = express();
   app.disable("x-powered-by");
 
+  configureTrustProxy(app);
   installPreRouteMiddleware(app);
 
   app.use(createAdminRouter());

@@ -205,25 +205,25 @@ Set a shell variable for the local base URL:
 BASE_URL=http://localhost:3001
 ```
 
-## Response compression
+### Running behind a proxy
 
-Large JSON and CSV responses are compressed when the client advertises
-`Accept-Encoding: gzip` or `deflate`. Compression is installed after the
-request-id and security-header middleware so existing tracing and hardening
-headers remain on compressed responses.
+By default the backend does not trust `X-Forwarded-For`, so spoofed proxy
+headers cannot change the rate-limit key. When the service is deployed behind a
+load balancer or reverse proxy that you control, set `TRUST_PROXY` to the number
+of trusted proxy hops:
 
-Runtime knobs:
+```bash
+TRUST_PROXY=1 npm start
+```
 
-| Variable                      | Default | Description                                                                                                  |
-| ----------------------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
-| `COMPRESSION`                 | `on`    | Set to `off`, `false`, `0`, or `disabled` to bypass compression.                                             |
-| `COMPRESSION_THRESHOLD_BYTES` | `1024`  | Minimum response size before compression is considered. Invalid or negative values fall back to the default. |
+Truthy values such as `true`, `yes`, and `on` are treated as one trusted hop.
+Leave `TRUST_PROXY` unset, `0`, or `false` for direct-to-node deployments.
 
-`GET /api/v1/metrics` stays uncompressed so the Prometheus
-`Content-Type: text/plain; version=0.0.4` exposition remains predictable.
-The current API does not return reflected secrets in compressible responses;
-keep that boundary in mind before adding secret-bearing pages because
-compression can amplify BREACH-style side channels.
+Rate limiting prefers a recognized `X-API-Key` over the client IP, so two valid
+API-key tenants behind the same NAT do not throttle each other. Requests without
+a recognized key continue to use Express' trusted client IP. Only enable
+`TRUST_PROXY` behind a proxy that strips or overwrites inbound
+`X-Forwarded-For`; otherwise clients can choose the address Express sees.
 
 1. Register a billable service.
 

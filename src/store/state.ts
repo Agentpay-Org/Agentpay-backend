@@ -66,5 +66,5 @@ export const servicesMetadata = new Map<string, ServiceMetadataDto>();
 /** Registered webhooks and their event subscriptions. */
 export const webhookStore = new Map<string, WebhookRecord>();
 
-/** Rate-limiter windows keyed by source IP. */
+/** Rate-limiter windows keyed by authenticated API key digest or trusted IP. */
 export const rateBuckets = new Map<string, number[]>();
