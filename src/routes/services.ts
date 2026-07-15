@@ -33,6 +33,25 @@ function serviceReadShape(
 }
 
 /**
+ * Parses optional non-negative integer price filters; malformed values are ignored.
+ */
+function parsePriceFilter(value: unknown): number | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) return undefined;
+  return parsed;
+}
+
+/**
+ * Parses the disabled-state filter only when clients pass literal true/false.
+ */
+function parseDisabledFilter(value: unknown): boolean | undefined {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return undefined;
+}
+
+/**
  * Builds service registry and service rollup routes.
  */
 export function createServicesRouter(): Router {
@@ -288,10 +307,15 @@ export function createServicesRouter(): Router {
     res.status(204).send();
   });
 
-  /** Lists services with their disabled state and optional metadata. */
+  /**
+   * Lists services with optional id, disabled-state, and price-range filters.
+   */
   router.get("/api/v1/services", (req: Request, res: Response) => {
     const prefix = typeof req.query.prefix === "string" ? req.query.prefix : "";
     const q = typeof req.query.q === "string" ? req.query.q.toLowerCase() : "";
+    const disabled = parseDisabledFilter(req.query.disabled);
+    const minPrice = parsePriceFilter(req.query.minPrice);
+    const maxPrice = parsePriceFilter(req.query.maxPrice);
     const limit = Math.min(
       1000,
       Math.max(1, Number((req.query.limit as string) ?? 200))
@@ -300,6 +324,11 @@ export function createServicesRouter(): Router {
     for (const [serviceId, meta] of servicesStore.entries()) {
       if (prefix && !serviceId.startsWith(prefix)) continue;
       if (q && !serviceId.toLowerCase().includes(q)) continue;
+      if (disabled !== undefined && servicesDisabled.has(serviceId) !== disabled) {
+        continue;
+      }
+      if (minPrice !== undefined && meta.priceStroops < minPrice) continue;
+      if (maxPrice !== undefined && meta.priceStroops > maxPrice) continue;
       services.push(serviceReadShape(serviceId, meta));
       if (services.length >= limit) break;
     }
