@@ -346,15 +346,16 @@ billedStroops }` plus `totalBilledStroops`. Agents with no outstanding usage
    }
    ```
 
-## Usage accumulator reset
+### Conditional read polling
 
-Use `DELETE /api/v1/usage/:agent/:serviceId` to correct a mis-recorded usage
-counter without generating a settlement or billed amount. The endpoint is a
-write, so it is blocked while the backend is paused. When the accumulator was
-recorded, the response returns the prior `clearedTotal`, sets the counter to
-zero, and appends a `usage.reset` audit event with `{ agent, serviceId,
-clearedTotal }`. Pairs that were never recorded return the standard
-`404 not_found` envelope.
+Polling-friendly read endpoints emit weak `ETag` validators. Clients can send
+the last value back with `If-None-Match`; unchanged responses return
+`304 Not Modified` with an empty body. This is supported for
+`GET /api/v1/services`, `GET /api/v1/events`, and `GET /api/v1/stats`.
+
+`GET /api/v1/events` scopes its validator to the effective `since`, `type`, and
+`limit` query values so different filters never share a validator just because
+their current response bodies are both empty.
 
 ## CI/CD
 

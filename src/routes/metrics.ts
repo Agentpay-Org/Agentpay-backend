@@ -1,11 +1,6 @@
 import { Router, type Response } from "express";
-import {
-  apiKeyStore,
-  pauseState,
-  servicesStore,
-  usageStore,
-  webhookStore,
-} from "../store/state.js";
+import { etagFor } from "../httpCache.js";
+import { apiKeyStore, pauseState, servicesStore, usageStore } from "../store/state.js";
 
 /**
  * Builds operational metrics and aggregate stats routes.
@@ -46,7 +41,7 @@ export function createMetricsRouter(): Router {
     res.send(lines.join("\n") + "\n");
   });
 
-  router.get("/api/v1/stats", (_req, res: Response) => {
+  router.get("/api/v1/stats", (req, res: Response) => {
     let totalRequests = 0;
     const agents = new Set<string>();
     for (const [key, total] of usageStore.entries()) {
@@ -54,7 +49,7 @@ export function createMetricsRouter(): Router {
       const parts = usagePartsFromAnyStoreKey(key);
       if (parts) agents.add(parts.agent);
     }
-    res.json({
+    const bodyShape = {
       totalServices: servicesStore.size,
       totalApiKeys: apiKeyStore.size,
       totalWebhooks: webhookStore.size,
@@ -65,7 +60,15 @@ export function createMetricsRouter(): Router {
       settledStroopsTotal: settlementCounters.settledStroopsTotal.toString(),
       settlementsTotal: settlementCounters.settlementsTotal,
       paused: pauseState.paused,
-    });
+    };
+    const body = JSON.stringify(bodyShape);
+    const etag = etagFor(body);
+    if (req.header("if-none-match") === etag) {
+      res.status(304).end();
+      return;
+    }
+    res.setHeader("ETag", etag);
+    res.type("application/json").send(body);
   });
 
   return router;
