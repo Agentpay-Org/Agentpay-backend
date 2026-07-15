@@ -37,7 +37,7 @@
     "typescript-eslint": "^8.61.1"
   },
   "dependencies": {
-    "compression": "^1.8.1",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "helmet": "^8.2.0"
   }
 }

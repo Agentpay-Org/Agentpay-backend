@@ -416,6 +416,24 @@ Node.js is pinned to **20.x LTS** in CI, which satisfies the `engines >= 18.18` 
 
 ## Security / dependency update policy
 
+### Runtime response headers
+
+The API installs Helmet on every route before request IDs, API-key recognition,
+rate limiting, or feature routers run. The configured policy preserves the
+existing HSTS preload policy, `X-Frame-Options: DENY`,
+`X-Content-Type-Options: nosniff`, and `Referrer-Policy: no-referrer` behavior
+while adding a JSON-API-oriented `Content-Security-Policy`:
+
+- `default-src 'none'` denies document subresources by default.
+- `frame-ancestors 'none'` prevents the API from being embedded in frames.
+- explicit `script-src 'none'`, `style-src 'none'`, and related directives keep
+  inline script/style and `eval` unavailable if a browser renders an API
+  response.
+
+`Permissions-Policy` stays explicit at
+`geolocation=(), camera=(), microphone=()`. The policy is applied to JSON
+responses, CSV/JSON downloads, and Prometheus metrics text exposition.
+
 ### Vulnerability audit
 
 Every CI run executes `npm audit --audit-level=high`. A **high** or **critical** advisory blocks the build and must be resolved before merging.

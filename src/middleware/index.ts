@@ -6,7 +6,14 @@ import express, {
   type RequestHandler,
   type Response,
 } from "express";
-import { apiKeyStore, config, pauseState, rateBuckets } from "../store/state.js";
+import helmet from "helmet";
+import {
+  apiKeyStore,
+  pauseState,
+  rateBuckets,
+  RATE_LIMIT_PER_WINDOW,
+  RATE_LIMIT_WINDOW_MS,
+} from "../store/state.js";
 import type { AgentPayRequest } from "../types.js";
 
 /**
@@ -17,6 +24,7 @@ export function installPreRouteMiddleware(app: Application): void {
   app.use(createCorsMiddleware());
   app.use(express.json({ limit: "100kb" }));
   app.use(securityHeadersMiddleware);
+  app.use(permissionsPolicyMiddleware);
   app.use(requestIdMiddleware);
   app.use(createCompressionMiddleware());
 }
@@ -102,55 +110,45 @@ function createCorsMiddleware() {
 }
 
 /**
- * Parses configured CORS origins into canonical scheme://host[:port] entries.
+ * Helmet owns the standard response hardening header set. The CSP is tuned for
+ * this JSON API surface: no document subresources are expected, framing is
+ * denied, and explicit script/style directives avoid inline or eval fallbacks.
  */
-function parseCorsOrigins(raw: string | undefined): Set<string> {
-  const origins = new Set<string>();
-  for (const entry of (raw ?? "").split(",")) {
-    const trimmed = entry.trim();
-    if (!trimmed) continue;
-    if (trimmed === "*") {
-      throw new Error(
-        "CORS_ALLOWED_ORIGINS wildcard '*' is not supported; list explicit http(s) origins"
-      );
-    }
+const securityHeadersMiddleware = helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'none'"],
+      baseUri: ["'none'"],
+      connectSrc: ["'none'"],
+      fontSrc: ["'none'"],
+      formAction: ["'none'"],
+      frameAncestors: ["'none'"],
+      imgSrc: ["'none'"],
+      manifestSrc: ["'none'"],
+      mediaSrc: ["'none'"],
+      objectSrc: ["'none'"],
+      scriptSrc: ["'none'"],
+      scriptSrcAttr: ["'none'"],
+      styleSrc: ["'none'"],
+      workerSrc: ["'none'"],
+    },
+  },
+  referrerPolicy: { policy: "no-referrer" },
+  strictTransportSecurity: {
+    maxAge: 63_072_000,
+    includeSubDomains: true,
+    preload: true,
+  },
+  xFrameOptions: { action: "deny" },
+});
 
-    const normalized = normalizeCorsOrigin(trimmed);
-    if (normalized) {
-      origins.add(normalized);
-    } else {
-      console.warn(
-        `Ignoring malformed CORS origin in CORS_ALLOWED_ORIGINS: ${trimmed}`
-      );
-    }
-  }
-  return origins;
-}
-
-function normalizeCorsOrigin(value: string): string | undefined {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
-    if (url.pathname !== "/" || url.search || url.hash) return undefined;
-    return url.origin.toLowerCase();
-  } catch {
-    return undefined;
-  }
-}
-
-/** Adds the minimal hardening headers used by the original app. */
-function securityHeadersMiddleware(
+/** Keeps the API's explicit browser feature restrictions. */
+function permissionsPolicyMiddleware(
   _req: Request,
   res: Response,
   next: NextFunction
 ): void {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Referrer-Policy", "no-referrer");
-  res.setHeader(
-    "Strict-Transport-Security",
-    "max-age=63072000; includeSubDomains; preload"
-  );
   res.setHeader("Permissions-Policy", "geolocation=(), camera=(), microphone=()");
   next();
 }
