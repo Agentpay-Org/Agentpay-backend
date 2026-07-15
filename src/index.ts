@@ -1,5 +1,5 @@
 import express from "express";
-import type { EventEmitter } from "node:events";
+import type { Server } from "node:http";
 import {
   installPreRouteMiddleware,
   installRequestStateMiddleware,
@@ -45,6 +45,68 @@ interface ShutdownControllerOptions {
 interface ShutdownController {
   shutdown: (signal: string, exitCode?: number) => boolean;
   handleProcessFault: (event: ProcessFaultEvent, reason: unknown) => boolean;
+}
+
+type ServerTimeouts = {
+  requestTimeoutMs: number;
+  headersTimeoutMs: number;
+  keepAliveTimeoutMs: number;
+};
+
+const DEFAULT_SERVER_TIMEOUTS: ServerTimeouts = {
+  requestTimeoutMs: 30_000,
+  headersTimeoutMs: 10_000,
+  keepAliveTimeoutMs: 5_000,
+};
+
+function positiveIntegerEnv(
+  env: NodeJS.ProcessEnv,
+  key: string,
+  fallback: number
+): number {
+  const raw = env[key];
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function resolveServerTimeouts(env: NodeJS.ProcessEnv): ServerTimeouts {
+  const requestTimeoutMs = positiveIntegerEnv(
+    env,
+    "REQUEST_TIMEOUT_MS",
+    DEFAULT_SERVER_TIMEOUTS.requestTimeoutMs
+  );
+  const keepAliveTimeoutMs = positiveIntegerEnv(
+    env,
+    "KEEPALIVE_TIMEOUT_MS",
+    DEFAULT_SERVER_TIMEOUTS.keepAliveTimeoutMs
+  );
+  const configuredHeadersTimeoutMs = positiveIntegerEnv(
+    env,
+    "HEADERS_TIMEOUT_MS",
+    DEFAULT_SERVER_TIMEOUTS.headersTimeoutMs
+  );
+  const headersTimeoutMs = Math.max(configuredHeadersTimeoutMs, keepAliveTimeoutMs);
+
+  return { requestTimeoutMs, headersTimeoutMs, keepAliveTimeoutMs };
+}
+
+/**
+ * Applies bounded HTTP server timeouts to limit slow or hung connections.
+ */
+function configureServerTimeouts(
+  server: Server,
+  env: NodeJS.ProcessEnv = process.env
+): ServerTimeouts {
+  const timeouts = resolveServerTimeouts(env);
+  server.requestTimeout = timeouts.requestTimeoutMs;
+  server.headersTimeout = timeouts.headersTimeoutMs;
+  server.keepAliveTimeout = timeouts.keepAliveTimeoutMs;
+  server.setTimeout(timeouts.requestTimeoutMs, (socket) => {
+    socket.destroy();
+  });
+  return timeouts;
 }
 
 /**
@@ -165,6 +227,7 @@ if (isServerEntrypoint()) {
   const server = app.listen(PORT, () => {
     console.log(`AgentPay backend listening on port ${PORT}`);
   });
+  configureServerTimeouts(server);
 
   const shutdown = (signal: string) => {
     markShuttingDown();
@@ -185,10 +248,4 @@ if (isServerEntrypoint()) {
   process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
-export {
-  app,
-  createApp,
-  createShutdownController,
-  installProcessFaultHandlers,
-  isServerEntrypoint,
-};
+export { app, configureServerTimeouts, createApp, DEFAULT_SERVER_TIMEOUTS };
