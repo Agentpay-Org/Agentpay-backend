@@ -193,6 +193,11 @@ Every routed response includes a coarse `Server-Timing` header such as
 only total application handling time in milliseconds; it does not expose route
 internals, service identifiers, API keys, agents, or billing details.
 
+Write endpoints use shared request-body schemas before route handlers run. The
+same schema registry backs the OpenAPI request-body components, rejects unknown
+fields, and preserves the existing `400 invalid_request` response shape with a
+client `message` and `requestId`.
+
 Set a shell variable for the local base URL:
 
 ```bash

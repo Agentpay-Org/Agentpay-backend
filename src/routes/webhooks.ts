@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
-import { parsePagination } from "../pagination.js";
+import { validateBody } from "../middleware/validate.js";
+import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { webhookStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
@@ -108,89 +109,43 @@ export function createWebhooksRouter(): Router {
     res.json({ id, deliveredAt: Date.now(), simulated: true });
   });
 
-  router.patch("/api/v1/webhooks/:id", (req: Request, res: Response) => {
-    const { id } = req.params;
-    const requestId = getRequestId(req);
-    const existing = webhookStore.get(id);
-    if (!existing) {
-      res.status(404).json({
-        error: "not_found",
-        message: `webhook ${id} not registered`,
-        requestId,
-      });
-      return;
-    }
-    const { url, events } = readWebhookBody(req);
-    if (url !== undefined) {
-      const validatedUrl = validateWebhookUrl(url);
-      if (!validatedUrl.ok) {
-        res.status(400).json({
-          error: "invalid_request",
-          message: validatedUrl.message,
+  router.patch(
+    "/api/v1/webhooks/:id",
+    validateBody(requestBodySchemas.webhookPatch),
+    (req: Request, res: Response) => {
+      const { id } = req.params;
+      const requestId = getRequestId(req);
+      const existing = webhookStore.get(id);
+      if (!existing) {
+        res.status(404).json({
+          error: "not_found",
+          message: `webhook ${id} not registered`,
           requestId,
         });
         return;
       }
-      existing.url = validatedUrl.value;
-    }
-    if (events !== undefined) {
-      const validatedEvents = validateWebhookEvents(events);
-      if (!validatedEvents.ok) {
-        res.status(400).json({
-          error: "invalid_request",
-          message: validatedEvents.message,
-          requestId,
-        });
-        return;
+      const { url, events } = req.body ?? {};
+      if (url !== undefined) {
+        existing.url = url;
       }
-      existing.events = validatedEvents.value;
+      if (events !== undefined) {
+        existing.events = events;
+      }
+      webhookStore.set(id, existing);
+      res.json({ id, ...existing });
     }
-    webhookStore.set(id, existing);
-    res.json({ id, ...existing });
-  });
+  );
 
-  router.post("/api/v1/webhooks", (req: Request, res: Response) => {
-    const { url, events } = readWebhookBody(req);
-    const requestId = getRequestId(req);
-    const validatedUrl = validateWebhookUrl(url);
-    if (!validatedUrl.ok) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: validatedUrl.message,
-        requestId,
-      });
-      return;
+  router.post(
+    "/api/v1/webhooks",
+    validateBody(requestBodySchemas.webhookCreate),
+    (req: Request, res: Response) => {
+      const { url, events } = req.body ?? {};
+      const id = `wh_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+      webhookStore.set(id, { url, events, createdAt: Date.now() });
+      res.status(201).json({ id, url, events });
     }
-    const validatedEvents = validateWebhookEvents(events);
-    if (!validatedEvents.ok) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: validatedEvents.message,
-        requestId,
-      });
-      return;
-    }
-    const unknownEvent = findUnknownWebhookEvent(events);
-    if (unknownEvent) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: `unknown webhook event: ${unknownEvent}`,
-        requestId,
-      });
-      return;
-    }
-    const id = `wh_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
-    webhookStore.set(id, {
-      url: validatedUrl.value,
-      events: validatedEvents.value,
-      createdAt: Date.now(),
-    });
-    res.status(201).json({
-      id,
-      url: validatedUrl.value,
-      events: validatedEvents.value,
-    });
-  });
+  );
 
   return router;
 }

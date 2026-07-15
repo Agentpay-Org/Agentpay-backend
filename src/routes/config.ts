@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
-import { BULK_MAX_ITEMS_LIMIT, config } from "../store/state.js";
-import { getRequestId } from "../types.js";
+import { validateBody } from "../middleware/validate.js";
+import { requestBodySchemas } from "../schemas/requestBodies.js";
+import { config } from "../store/state.js";
 
 const allowedConfigKeys = [
   "rateLimitPerWindow",
@@ -38,75 +39,20 @@ export function createConfigRouter(): Router {
     res.json({ config });
   });
 
-  /**
-   * Applies a bounded, all-or-nothing runtime config patch.
-   *
-   * Only known mutable keys are accepted, every value must be a positive
-   * integer, and eventLogCap is capped to avoid unbounded memory growth.
-   */
-  router.patch("/api/v1/config", (req: Request, res: Response) => {
-    const requestId = getRequestId(req);
-    const rawUpdates: unknown = req.body ?? {};
-    if (typeof rawUpdates !== "object" || Array.isArray(rawUpdates)) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "config patch body must be an object",
-        requestId,
-      });
-      return;
-    }
-
-    const updates = rawUpdates as Record<string, unknown>;
-    const unknownKeys = Object.keys(updates).filter((k) => !allowedConfigKeySet.has(k));
-    if (unknownKeys.length > 0) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: `unknown config key${unknownKeys.length === 1 ? "" : "s"}: ${unknownKeys.join(", ")}`,
-        unknownKeys,
-        requestId,
-      });
-      return;
-    }
-
-    const validated: Partial<Record<WritableConfigKey, number>> = {};
-    for (const k of allowedConfigKeys) {
-      if (k in updates) {
-        const v = updates[k];
-        const bounds = configBounds[k];
-        if (
-          typeof v !== "number" ||
-          !Number.isInteger(v) ||
-          v < bounds.min ||
-          (bounds.max !== undefined && v > bounds.max)
-        ) {
-          res.status(400).json({
-            error: "invalid_request",
-            message: configValidationMessage(k),
-            requestId,
-          });
-          return;
+  router.patch(
+    "/api/v1/config",
+    validateBody(requestBodySchemas.configPatch),
+    (req: Request, res: Response) => {
+      const updates = req.body ?? {};
+      for (const k of allowedConfigKeys) {
+        if (k in updates) {
+          const v = updates[k];
+          config[k] = v;
         }
-        const maxValue = maxConfigValues[k];
-        if (maxValue !== undefined && v > maxValue) {
-          res.status(400).json({
-            error: "invalid_request",
-            message: `${k} must be less than or equal to ${maxValue}`,
-            requestId,
-          });
-          return;
-        }
-        validated[k] = v;
       }
+      res.json({ config });
     }
-
-    for (const k of allowedConfigKeys) {
-      const v = validated[k];
-      if (v !== undefined) config[k] = v;
-    }
-    if (validated.eventLogCap !== undefined) trimEventLogToCap(validated.eventLogCap);
-
-    res.json({ config });
-  });
+  );
 
   return router;
 }

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import { parsePagination } from "../pagination.js";
+import { validateBody } from "../middleware/validate.js";
+import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { apiKeyStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
@@ -48,27 +49,16 @@ export function createApiKeysRouter(): Router {
     res.json({ items, total: allItems.length });
   });
 
-  router.post("/api/v1/api-keys", (req: Request, res: Response) => {
-    const { label } = req.body ?? {};
-    const requestId = getRequestId(req);
-    if (typeof label !== "string" || label.length === 0 || label.length > 64) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "label must be a non-empty string up to 64 chars",
-        requestId,
-      });
-      return;
+  router.post(
+    "/api/v1/api-keys",
+    validateBody(requestBodySchemas.apiKeyCreate),
+    (req: Request, res: Response) => {
+      const { label } = req.body ?? {};
+      const key = `apk_${randomUUID().replace(/-/g, "")}`;
+      apiKeyStore.set(key, { label, createdAt: Date.now() });
+      res.status(201).json({ key, label });
     }
-    const key = `apk_${randomUUID().replace(/-/g, "")}`;
-    if (!hasCapacityForNewKey(apiKeyStore, key, "apiKeyStoreMaxKeys")) {
-      res
-        .status(429)
-        .json(storeCapacityError("apiKeyStore", "apiKeyStoreMaxKeys", requestId));
-      return;
-    }
-    apiKeyStore.set(key, { label, createdAt: Date.now() });
-    res.status(201).json({ key, label });
-  });
+  );
 
   return router;
 }
