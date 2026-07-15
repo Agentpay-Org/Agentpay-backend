@@ -5,6 +5,7 @@ import {
   servicesDisabled,
   servicesMetadata,
   servicesStore,
+  type ServiceMetadataDto,
   usageStore,
 } from "../store/state.js";
 import {
@@ -41,31 +42,18 @@ function serviceReadShape(
   };
 }
 
-function sendServiceNotFound(req: Request, res: Response, serviceId: string): void {
-  res.status(404).json({
-    error: "not_found",
-    message: `service ${serviceId} is not registered`,
-    requestId: getRequestId(req),
-  });
-}
-
-/**
- * Parses optional non-negative integer price filters; malformed values are ignored.
- */
-function parsePriceFilter(value: unknown): number | undefined {
-  if (typeof value !== "string" || value.trim() === "") return undefined;
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) return undefined;
-  return parsed;
-}
-
-/**
- * Parses the disabled-state filter only when clients pass literal true/false.
- */
-function parseDisabledFilter(value: unknown): boolean | undefined {
-  if (value === "true") return true;
-  if (value === "false") return false;
-  return undefined;
+/** Validates service metadata for both inline registration and metadata updates. */
+function validateServiceMetadata(
+  description: unknown,
+  owner: unknown
+): { metadata: ServiceMetadataDto } | { message: string } {
+  if (typeof description !== "string" || description.length > 256) {
+    return { message: "description must be a string up to 256 chars" };
+  }
+  if (typeof owner !== "string" || owner.length === 0 || owner.length > 256) {
+    return { message: "owner must be a non-empty string up to 256 chars" };
+  }
+  return { metadata: { description, owner } };
 }
 
 /**
@@ -117,7 +105,7 @@ export function createServicesRouter(): Router {
   });
 
   router.post("/api/v1/services", (req: Request, res: Response) => {
-    const { serviceId, priceStroops } = req.body ?? {};
+    const { serviceId, priceStroops, description, owner } = req.body ?? {};
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
     if (
@@ -140,10 +128,29 @@ export function createServicesRouter(): Router {
       });
       return;
     }
-    const storeKey = tenantServiceKey(tenantId, serviceId);
-    const isNew = !servicesStore.has(storeKey);
-    servicesStore.set(storeKey, { priceStroops });
-    res.status(isNew ? 201 : 200).json({ serviceId, priceStroops });
+
+    let inlineMetadata: ServiceMetadataDto | undefined;
+    if (description !== undefined || owner !== undefined) {
+      const metadataResult = validateServiceMetadata(description, owner);
+      if ("message" in metadataResult) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: metadataResult.message,
+          requestId,
+        });
+        return;
+      }
+      inlineMetadata = metadataResult.metadata;
+    }
+
+    const isNew = !servicesStore.has(serviceId);
+    servicesStore.set(serviceId, { priceStroops });
+    if (inlineMetadata) {
+      servicesMetadata.set(serviceId, inlineMetadata);
+    }
+    res
+      .status(isNew ? 201 : 200)
+      .json({ serviceId, priceStroops, ...(inlineMetadata ?? {}) });
   });
 
   router.get("/api/v1/services/:serviceId/usage", (req: Request, res: Response) => {
@@ -230,24 +237,17 @@ export function createServicesRouter(): Router {
       return;
     }
     const { description, owner } = req.body ?? {};
-    if (typeof description !== "string" || description.length > 256) {
+    const metadataResult = validateServiceMetadata(description, owner);
+    if ("message" in metadataResult) {
       res.status(400).json({
         error: "invalid_request",
-        message: "description must be a string up to 256 chars",
+        message: metadataResult.message,
         requestId,
       });
       return;
     }
-    if (typeof owner !== "string" || owner.length === 0 || owner.length > 256) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "owner must be a non-empty string up to 256 chars",
-        requestId,
-      });
-      return;
-    }
-    servicesMetadata.set(storeKey, { description, owner });
-    res.json({ serviceId, description, owner });
+    servicesMetadata.set(serviceId, metadataResult.metadata);
+    res.json({ serviceId, ...metadataResult.metadata });
   });
 
   router.get("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
