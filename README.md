@@ -238,21 +238,11 @@ BASE_URL=http://localhost:3001
    }
    ```
 
-## Runtime config
-
-`GET /api/v1/config` returns the current in-memory runtime config. `PATCH
-/api/v1/config` accepts only these writable positive-integer keys and responds
-with `200 { config }` after a valid update:
-
-| Key                  | Purpose                                    | Bound            |
-| -------------------- | ------------------------------------------ | ---------------- |
-| `rateLimitPerWindow` | Requests allowed per IP rate-limit window  | Positive integer |
-| `rateLimitWindowMs`  | Rate-limit window length in milliseconds   | Positive integer |
-| `bulkMaxItems`       | Maximum entries accepted by bulk endpoints | Positive integer |
-| `eventLogCap`        | Maximum retained in-memory audit events    | 1 through 100000 |
-
-Unknown keys are rejected with `400 invalid_request` and an `unknownKeys` array,
-so misspelled config names do not look like successful no-op updates.
+   Metrics distinguish the outstanding counter from lifetime throughput:
+   `agentpay_usage_requests_total` and `/api/v1/stats.totalRequests` are the
+   current unsettled totals, while `agentpay_requests_recorded_total` and
+   `/api/v1/stats.lifetimeRequests` are monotonically increasing process-local
+   counters that are not reduced by settlement.
 
 ## CI/CD
 

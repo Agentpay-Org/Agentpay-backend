@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
 import {
+  lifetimeRequests,
   servicesDisabled,
   servicesStore,
   usageKey,
@@ -20,6 +21,14 @@ type BillingTotalBreakdown = {
   disabledStroops: number;
   unpricedRequests: number;
 };
+
+/** Records accepted usage volume without allowing the lifetime counter to wrap. */
+function incrementLifetimeRequests(requests: number) {
+  lifetimeRequests.total = Math.min(
+    Number.MAX_SAFE_INTEGER,
+    lifetimeRequests.total + requests
+  );
+}
 
 /**
  * Builds usage, billing, settlement, and agent rollup routes.
@@ -73,6 +82,7 @@ export function createUsageRouter(): Router {
     const prev = usageStore.get(key) ?? 0;
     const total = Math.min(Number.MAX_SAFE_INTEGER, prev + requests);
     usageStore.set(key, total);
+    incrementLifetimeRequests(requests);
 
     recordEvent("usage.recorded", { agent, serviceId, requests, total });
     res.status(201).json({ agent, serviceId, total });
@@ -108,6 +118,7 @@ export function createUsageRouter(): Router {
         (usageStore.get(key) ?? 0) + requests
       );
       usageStore.set(key, total);
+      incrementLifetimeRequests(requests);
       recordEvent("usage.recorded", {
         agent,
         serviceId,

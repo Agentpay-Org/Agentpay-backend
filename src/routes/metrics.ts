@@ -1,5 +1,11 @@
 import { Router, type Response } from "express";
-import { apiKeyStore, pauseState, servicesStore, usageStore } from "../store/state.js";
+import {
+  apiKeyStore,
+  lifetimeRequests,
+  pauseState,
+  servicesStore,
+  usageStore,
+} from "../store/state.js";
 
 /**
  * Builds operational metrics and aggregate stats routes.
@@ -20,6 +26,9 @@ export function createMetricsRouter(): Router {
       "# HELP agentpay_usage_requests_total Outstanding (unsettled) request counters.",
       "# TYPE agentpay_usage_requests_total gauge",
       `agentpay_usage_requests_total ${totalRequests}`,
+      "# HELP agentpay_requests_recorded_total Lifetime accepted usage requests.",
+      "# TYPE agentpay_requests_recorded_total counter",
+      `agentpay_requests_recorded_total ${lifetimeRequests.total}`,
       "# HELP agentpay_paused 1 if the backend is paused, 0 otherwise.",
       "# TYPE agentpay_paused gauge",
       `agentpay_paused ${pauseState.paused ? 1 : 0}`,
@@ -39,6 +48,7 @@ export function createMetricsRouter(): Router {
       totalServices: servicesStore.size,
       totalApiKeys: apiKeyStore.size,
       totalRequests,
+      lifetimeRequests: lifetimeRequests.total,
       uniqueAgents: agents.size,
       paused: pauseState.paused,
     });
