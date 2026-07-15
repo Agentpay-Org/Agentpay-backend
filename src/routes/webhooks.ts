@@ -109,17 +109,32 @@ export function createWebhooksRouter(): Router {
     res.json({ id, deliveredAt: Date.now(), simulated: true });
   });
 
-  router.patch(
-    "/api/v1/webhooks/:id",
-    validateBody(requestBodySchemas.webhookPatch),
-    (req: Request, res: Response) => {
-      const { id } = req.params;
-      const requestId = getRequestId(req);
-      const existing = webhookStore.get(id);
-      if (!existing) {
-        res.status(404).json({
-          error: "not_found",
-          message: `webhook ${id} not registered`,
+  router.patch("/api/v1/webhooks/:id", (req: Request, res: Response) => {
+    const { id } = req.params;
+    const requestId = getRequestId(req);
+    const existing = webhookStore.get(id);
+    if (!existing) {
+      res.status(404).json({
+        error: "not_found",
+        message: `webhook ${id} not registered`,
+        requestId,
+      });
+      return;
+    }
+    const { url, events } = req.body ?? {};
+    if (url === undefined && events === undefined) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: "at least one of url or events is required",
+        requestId,
+      });
+      return;
+    }
+    if (url !== undefined) {
+      if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: "url must be an http(s) URL up to 2048 chars",
           requestId,
         });
         return;
