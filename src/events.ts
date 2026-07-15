@@ -11,13 +11,11 @@ export type AppEvent = {
 export const DEFAULT_EVENT_LOG_CAP = 10_000;
 export const eventLog: AppEvent[] = [];
 
-export function getEventLogCap(): number {
-  return config.eventLogCap ?? DEFAULT_EVENT_LOG_CAP;
-}
-
-export function trimEventLogToCap(cap = getEventLogCap()): void {
-  while (eventLog.length > cap) eventLog.shift();
-}
+export const KNOWN_EVENT_TYPES = [
+  "usage.recorded",
+  "usage.settled",
+  "webhook.test",
+] as const;
 
 /**
  * Appends an audit event to the bounded in-memory event log.

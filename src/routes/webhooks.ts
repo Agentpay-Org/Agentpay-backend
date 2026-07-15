@@ -1,8 +1,32 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
-import { recordEvent } from "../events.js";
+import { KNOWN_EVENT_TYPES, recordEvent } from "../events.js";
 import { webhookStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
+
+const SUBSCRIBABLE_EVENT_TYPES = new Set<string>([...KNOWN_EVENT_TYPES, "*"]);
+
+function readWebhookBody(req: Request): { url?: unknown; events?: unknown } {
+  const body: unknown = req.body;
+  if (!body || typeof body !== "object") {
+    return {};
+  }
+  const fields = body as Record<string, unknown>;
+  return { url: fields.url, events: fields.events };
+}
+
+function isNonEmptyStringArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((entry) => typeof entry === "string")
+  );
+}
+
+/** Returns the first webhook event name outside the documented taxonomy. */
+function findUnknownWebhookEvent(events: string[]): string | undefined {
+  return events.find((event) => !SUBSCRIBABLE_EVENT_TYPES.has(event));
+}
 
 /**
  * Builds webhook registration, update, deletion, and synthetic test routes.
@@ -60,7 +84,7 @@ export function createWebhooksRouter(): Router {
       });
       return;
     }
-    const { url, events } = req.body ?? {};
+    const { url, events } = readWebhookBody(req);
     if (url !== undefined) {
       if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) {
         res.status(400).json({
@@ -73,14 +97,19 @@ export function createWebhooksRouter(): Router {
       existing.url = url;
     }
     if (events !== undefined) {
-      if (
-        !Array.isArray(events) ||
-        events.length === 0 ||
-        events.some((e) => typeof e !== "string")
-      ) {
+      if (!isNonEmptyStringArray(events)) {
         res.status(400).json({
           error: "invalid_request",
           message: "events must be a non-empty array of strings",
+          requestId,
+        });
+        return;
+      }
+      const unknownEvent = findUnknownWebhookEvent(events);
+      if (unknownEvent) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: `unknown webhook event: ${unknownEvent}`,
           requestId,
         });
         return;
@@ -92,7 +121,7 @@ export function createWebhooksRouter(): Router {
   });
 
   router.post("/api/v1/webhooks", (req: Request, res: Response) => {
-    const { url, events } = req.body ?? {};
+    const { url, events } = readWebhookBody(req);
     const requestId = getRequestId(req);
     if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) {
       res.status(400).json({
@@ -102,14 +131,19 @@ export function createWebhooksRouter(): Router {
       });
       return;
     }
-    if (
-      !Array.isArray(events) ||
-      events.length === 0 ||
-      events.some((e) => typeof e !== "string")
-    ) {
+    if (!isNonEmptyStringArray(events)) {
       res.status(400).json({
         error: "invalid_request",
         message: "events must be a non-empty array of strings",
+        requestId,
+      });
+      return;
+    }
+    const unknownEvent = findUnknownWebhookEvent(events);
+    if (unknownEvent) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: `unknown webhook event: ${unknownEvent}`,
         requestId,
       });
       return;

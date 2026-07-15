@@ -265,11 +265,13 @@ billedStroops }` plus `totalBilledStroops`. Agents with no outstanding usage
    }
    ```
 
-   Settlement observability is cumulative: `/api/v1/metrics` exposes
-   `agentpay_settled_stroops_total` and `agentpay_settlements_total`, and
-   `/api/v1/stats` includes `settledStroopsTotal` plus `settlementsTotal`.
-   `settledStroopsTotal` is serialized as a decimal string so large stroop
-   totals do not lose precision in JSON clients.
+## Webhook Event Subscriptions
+
+Webhook registrations accept only the documented event taxonomy:
+`usage.recorded`, `usage.settled`, `webhook.test`, or the `*` wildcard.
+`POST /api/v1/webhooks` and `PATCH /api/v1/webhooks/:id` reject unknown event
+names with `400 invalid_request` and name the unsupported value in the message.
+This keeps misspelled subscriptions from being stored silently.
 
 ## CI/CD
 
