@@ -33,9 +33,15 @@ type BillingTotalBreakdown = {
   unpricedRequests: number;
 };
 
-type UsageRecordBody = { agent: string; serviceId: string; requests: number };
-type BulkUsageBody = { items: unknown[] };
-type SettleBody = { agent: string; serviceId: string };
+const FORMULA_PREFIX_RE = /^[=+\-@\t\r]/;
+
+/**
+ * Escapes a CSV field and neutralizes spreadsheet formula prefixes.
+ */
+export function escapeCsvField(value: string): string {
+  const safeValue = FORMULA_PREFIX_RE.test(value) ? `'${value}` : value;
+  return /[",\n\r]/.test(safeValue) ? `"${safeValue.replace(/"/g, '""')}"` : safeValue;
+}
 
 /**
  * Builds usage, billing, settlement, and agent rollup routes.
@@ -139,10 +145,10 @@ export function createUsageRouter(): Router {
   });
 
   router.get("/api/v1/usage/export.csv", (_req, res: Response) => {
-    const escape = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
     const rows: string[] = ["agent,serviceId,total"];
-    for (const { agent, serviceId, total } of scanUsageStore()) {
-      rows.push(`${escape(agent)},${escape(serviceId)},${total}`);
+    for (const [key, total] of usageStore.entries()) {
+      const [agent, serviceId] = key.split("::");
+      rows.push(`${escapeCsvField(agent)},${escapeCsvField(serviceId)},${total}`);
     }
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", "attachment; filename=usage.csv");
