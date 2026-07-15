@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { isValidAgentId, isValidServiceId } from "../identifiers.js";
 import { recordEvent } from "../events.js";
-import { parseIntParam } from "../queryParams.js";
+import { createIdempotencyMiddleware } from "../middleware/idempotency.js";
 import {
   config,
   servicesDisabled,
@@ -61,13 +61,11 @@ function rejectInvalidPathIdentifier(
  */
 export function createUsageRouter(): Router {
   const router = Router();
+  const idempotency = createIdempotencyMiddleware();
 
-  router.post(
-    "/api/v1/usage",
-    validateBody(requestBodySchemas.usageRecord),
-    (req: Request, res: Response) => {
-      const { agent, serviceId, requests } = req.body as UsageRecordBody;
-      const requestId = getRequestId(req);
+  router.post("/api/v1/usage", idempotency, (req: Request, res: Response) => {
+    const { agent, serviceId, requests } = req.body ?? {};
+    const requestId = getRequestId(req);
 
     if (!isValidAgentId(agent)) {
       res.status(400).json({
@@ -112,7 +110,7 @@ export function createUsageRouter(): Router {
     res.status(201).json({ agent, serviceId, total });
   });
 
-  router.post("/api/v1/usage/bulk", (req: Request, res: Response) => {
+  router.post("/api/v1/usage/bulk", idempotency, (req: Request, res: Response) => {
     const requestId = getRequestId(req);
     const { items } = req.body ?? {};
     if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
@@ -294,7 +292,7 @@ export function createUsageRouter(): Router {
     });
   });
 
-  router.post("/api/v1/settle", (req: Request, res: Response) => {
+  router.post("/api/v1/settle", idempotency, (req: Request, res: Response) => {
     const { agent, serviceId } = req.body ?? {};
     const requestId = getRequestId(req);
     if (!isValidAgentId(agent) || !isValidServiceId(serviceId)) {

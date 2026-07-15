@@ -118,8 +118,9 @@ files are ignored by Docker builds and must not be baked into image layers.
 - [Billing units and settlement semantics](docs/billing-units.md) explains
   stroops, `priceStroops`, `billedStroops`, `/api/v1/billing/*`, and why
   `POST /api/v1/settle` drains backend counters without moving funds.
-- [Metrics](docs/metrics.md) documents Prometheus gauges, HTTP counters,
-  duration histograms, and error counters exposed by `GET /api/v1/metrics`.
+- [Idempotency keys](docs/idempotency.md) documents retry-safe billing writes
+  for `POST /api/v1/usage`, `POST /api/v1/usage/bulk`, and
+  `POST /api/v1/settle`.
 
 ## Quickstart
 
