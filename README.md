@@ -177,6 +177,13 @@ readinessProbe:
     port: 3001
 ```
 
+## Observability Headers
+
+Every routed response includes a coarse `Server-Timing` header such as
+`app;dur=2.4`. The value is set before response headers are flushed and reports
+only total application handling time in milliseconds; it does not expose route
+internals, service identifiers, API keys, agents, or billing details.
+
 Set a shell variable for the local base URL:
 
 ```bash
