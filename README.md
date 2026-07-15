@@ -34,10 +34,16 @@ API gateway, metering, and billing backend for the AgentPay protocol (machine-to
    ```
 
 4. **Run locally**:
+
    ```bash
    npm run dev
    ```
+
    Server runs at `http://localhost:3001`. Try `GET /health` and `GET /api/v1/version`.
+
+   By default the server listens on port `3001`. Set `PORT` to choose another
+   port; when set, it must be an integer from `1` to `65535`. Invalid values
+   fail fast at startup instead of falling through to Node's listen handling.
 
 ## Project structure
 
