@@ -79,10 +79,8 @@ agentpay-backend/
 - [Billing units and settlement semantics](docs/billing-units.md) explains
   stroops, `priceStroops`, `billedStroops`, `/api/v1/billing/*`, and why
   `POST /api/v1/settle` drains backend counters without moving funds.
-- `GET /api/v1/openapi.json` serves an OpenAPI 3.0.3 route index for the
-  currently registered API surface, including service metadata, disabled-state,
-  usage export, billing total, event summary, webhook update/test, and changelog
-  endpoints.
+- [Event log pagination](docs/events.md) documents `GET /api/v1/events`
+  cursors, `nextCursor`, and `total` metadata.
 
 ## Quickstart
 
