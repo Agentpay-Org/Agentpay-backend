@@ -274,13 +274,14 @@ billedStroops }` plus `totalBilledStroops`. Agents with no outstanding usage
    }
    ```
 
-## Service Agent Ordering
+## Service rollups
 
-`GET /api/v1/services/:serviceId/agents/top` and
-`GET /api/v1/services/:serviceId/agents` order consumers by descending total
-requests. When two agents have the same total, the response breaks ties by
-ascending agent id so repeated reads and paginated top-N boundaries stay
-deterministic.
+`GET /api/v1/services/:serviceId/usage` returns the outstanding request `total`
+for the service and an `agents` count. The `agents` value counts distinct agents
+with non-zero outstanding usage for that service. Agents whose accumulator has
+been settled back to zero are omitted from both that count and
+`GET /api/v1/services/:serviceId/agents`, while the `total` field keeps its
+existing outstanding-usage semantics.
 
 ## CI/CD
 
