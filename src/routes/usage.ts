@@ -22,13 +22,24 @@ type BillingTotalBreakdown = {
   unpricedRequests: number;
 };
 
-/** Records cumulative settlement throughput without per-agent labels. */
-function recordSettlementCounters(billedStroops: number) {
-  settlementCounters.settledStroopsTotal += BigInt(billedStroops);
-  settlementCounters.settlementsTotal = Math.min(
-    Number.MAX_SAFE_INTEGER,
-    settlementCounters.settlementsTotal + 1
-  );
+type SettlementItem = {
+  serviceId: string;
+  requests: number;
+  priceStroops: number;
+  billedStroops: number;
+};
+
+/**
+ * Drains one usage accumulator using the same quote logic for single and bulk settlement.
+ */
+function settleUsagePair(agent: string, serviceId: string): SettlementItem {
+  const key = usageKey(agent, serviceId);
+  const requests = usageStore.get(key) ?? 0;
+  const priceStroops = servicesStore.get(serviceId)?.priceStroops ?? 0;
+  const billedStroops = requests * priceStroops;
+  usageStore.set(key, 0);
+  recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
+  return { serviceId, requests, priceStroops, billedStroops };
 }
 
 /**
@@ -214,14 +225,31 @@ export function createUsageRouter(): Router {
       });
       return;
     }
-    const key = usageKey(agent, serviceId);
-    const requests = usageStore.get(key) ?? 0;
-    const price = servicesStore.get(serviceId)?.priceStroops ?? 0;
-    const billedStroops = requests * price;
-    usageStore.set(key, 0);
-    recordSettlementCounters(billedStroops);
-    recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
-    res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
+    const item = settleUsagePair(agent, serviceId);
+    res.json({ agent, ...item });
+  });
+
+  /** Drains every outstanding usage accumulator for a single agent. */
+  router.post("/api/v1/settle/bulk", (req: Request, res: Response) => {
+    const { agent } = req.body ?? {};
+    const requestId = getRequestId(req);
+    if (typeof agent !== "string" || agent.length === 0 || agent.length > 256) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: "agent must be a non-empty string up to 256 chars",
+        requestId,
+      });
+      return;
+    }
+
+    const prefix = `${agent}::`;
+    const serviceIds = Array.from(usageStore.entries())
+      .filter(([key, requests]) => key.startsWith(prefix) && requests > 0)
+      .map(([key]) => key.slice(prefix.length))
+      .sort();
+    const items = serviceIds.map((serviceId) => settleUsagePair(agent, serviceId));
+    const totalBilledStroops = items.reduce((sum, item) => sum + item.billedStroops, 0);
+    res.json({ agent, items, totalBilledStroops });
   });
 
   router.get("/api/v1/agents", (req: Request, res: Response) => {
