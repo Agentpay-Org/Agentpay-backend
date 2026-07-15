@@ -218,6 +218,10 @@ curl -sS -X POST "$BASE_URL/api/v1/api-keys" \
   -d '{"label":"ops"}'
 ```
 
+Structured logs default to `info` outside tests and `silent` in
+`NODE_ENV=test`. Set `LOG_LEVEL` to one of `fatal`, `error`, `warn`, `info`,
+`debug`, `trace`, or `silent` to override the default.
+
 Set a shell variable for the local base URL:
 
 ```bash

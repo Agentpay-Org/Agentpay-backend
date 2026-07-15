@@ -38,6 +38,6 @@
   },
   "dependencies": {
     "express": "^5.2.1",
-    "helmet": "^8.2.0"
+    "pino": "^10.3.1"
   }
 }

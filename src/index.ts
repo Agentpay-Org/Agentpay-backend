@@ -1,7 +1,13 @@
 import express from "express";
 import type { Server } from "node:http";
 import {
-  configureTrustProxy,
+  logger,
+  logForcedShutdown,
+  logServerCloseError,
+  logServerStarted,
+  logShutdownSignal,
+} from "./logger.js";
+import {
   installPreRouteMiddleware,
   installRequestStateMiddleware,
 } from "./middleware/index.js";
@@ -227,22 +233,21 @@ function installProcessFaultHandlers(
 
 if (isServerEntrypoint()) {
   const server = app.listen(PORT, () => {
-    console.log(`AgentPay backend listening on port ${PORT}`);
+    logServerStarted(logger, PORT);
   });
   configureServerTimeouts(server);
 
   const shutdown = (signal: string) => {
-    markShuttingDown();
-    console.log(`Received ${signal}, draining…`);
+    logShutdownSignal(logger, signal);
     server.close((err) => {
       if (err) {
-        console.error("server.close error:", err);
+        logServerCloseError(logger, err);
         process.exit(1);
       }
       process.exit(0);
     });
     setTimeout(() => {
-      console.error("Forced exit after 10s drain timeout");
+      logForcedShutdown(logger, 10_000);
       process.exit(1);
     }, 10_000).unref();
   };
