@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { createApiKeyRecord } from "../auth/apiKeys.js";
+import { validateBody } from "../middleware/validate.js";
+import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { apiKeyStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
@@ -44,14 +46,11 @@ export function createApiKeysRouter(): Router {
     validateBody(requestBodySchemas.apiKeyCreate),
     (req: Request, res: Response) => {
       const { label } = req.body ?? {};
-      const key = `apk_${randomUUID().replace(/-/g, "")}`;
-      apiKeyStore.set(key, { label, createdAt: Date.now() });
+      const { key, hash, record } = createApiKeyRecord(label);
+      apiKeyStore.set(hash, record);
       res.status(201).json({ key, label });
     }
-    const { key, hash, record } = createApiKeyRecord(label);
-    apiKeyStore.set(hash, record);
-    res.status(201).json({ key, label });
-  });
+  );
 
   return router;
 }

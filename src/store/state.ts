@@ -61,6 +61,9 @@ export function parseServiceKey(key: string): {
 /** Outstanding usage counters keyed by tenant/agent/service. */
 export const usageStore = new Map<string, number>();
 
+/** Monotonic counter for total requests ever metered, unaffected by settlement. */
+export let lifetimeRequests = 0;
+
 /** Builds the shared in-memory usage key for an agent/service pair. */
 export function usageKey(a: string, b: string, c?: string): string {
   if (c === undefined) {
@@ -89,13 +92,6 @@ export function parseUsageKey(key: string): {
   const [agent = "", serviceId = ""] = remainder.split("::");
   return { tenantId, agent, serviceId };
 }
-
-/** Builds the shared in-memory usage key for an agent/service pair. */
-export const usageKey = (
-  agent: string,
-  serviceId: string,
-  tenantId = IMPLICIT_TENANT_ID
-) => tenantUsageKey(tenantId, agent, serviceId);
 
 /** Registered services and their per-request prices, keyed by tenant-aware id. */
 export const servicesStore = new Map<string, { priceStroops: number }>();

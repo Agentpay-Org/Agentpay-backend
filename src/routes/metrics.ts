@@ -1,6 +1,14 @@
 import { Router, type Response } from "express";
 import { renderHttpMetrics } from "../metrics.js";
-import { apiKeyStore, pauseState, servicesStore, usageStore } from "../store/state.js";
+import {
+  apiKeyStore,
+  lifetimeRequests,
+  pauseState,
+  servicesStore,
+  usageStore,
+  webhookStore,
+} from "../store/state.js";
+import { etagFor } from "../httpCache.js";
 import { scanUsageStore } from "../usageScan.js";
 
 /**
@@ -28,6 +36,9 @@ export function createMetricsRouter(): Router {
       "# HELP agentpay_usage_requests_total Outstanding (unsettled) request counters.",
       "# TYPE agentpay_usage_requests_total gauge",
       `agentpay_usage_requests_total ${totalRequests}`,
+      "# HELP agentpay_requests_recorded_total Monotonic total requests metered.",
+      "# TYPE agentpay_requests_recorded_total counter",
+      `agentpay_requests_recorded_total ${lifetimeRequests}`,
       "# HELP agentpay_settled_stroops_total Lifetime settled value in stroops.",
       "# TYPE agentpay_settled_stroops_total counter",
       `agentpay_settled_stroops_total ${settlementCounters.settledStroopsTotal.toString()}`,
@@ -56,7 +67,7 @@ export function createMetricsRouter(): Router {
       totalWebhooks: webhookStore.size,
       usageKeys: usageStore.size,
       totalRequests,
-      lifetimeRequests: lifetimeRequests.total,
+      lifetimeRequests: lifetimeRequests,
       uniqueAgents: agents.size,
       settledStroopsTotal: settlementCounters.settledStroopsTotal.toString(),
       settlementsTotal: settlementCounters.settlementsTotal,

@@ -3,6 +3,7 @@ import { isValidAgentId, isValidServiceId } from "../identifiers.js";
 import { recordEvent } from "../events.js";
 import { createIdempotencyMiddleware } from "../middleware/idempotency.js";
 import {
+  lifetimeRequests,
   parseUsageKey,
   serviceKey,
   servicesDisabled,
@@ -103,54 +104,20 @@ export function createUsageRouter(): Router {
     const prev = usageStore.get(key) ?? 0;
     const total = Math.min(Number.MAX_SAFE_INTEGER, prev + requests);
     usageStore.set(key, total);
+    lifetimeRequests = Math.min(Number.MAX_SAFE_INTEGER, lifetimeRequests + requests);
 
     recordEvent("usage.recorded", { agent, serviceId, requests, total });
     res.status(201).json({ agent, serviceId, total });
   });
 
-  router.post("/api/v1/usage/bulk", idempotency, (req: Request, res: Response) => {
-    const requestId = getRequestId(req);
-    const tenantId = resolveTenantId(req);
-    const { items } = req.body ?? {};
-    if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "items must be a non-empty array of up to 100 entries",
-        requestId,
-      });
-      return;
-    }
-    const results: BulkUsageResult[] = [];
-    for (let i = 0; i < items.length; i++) {
-      const { agent, serviceId, requests } = items[i] ?? {};
-      if (
-        !isValidAgentId(agent) ||
-        !isValidServiceId(serviceId) ||
-        typeof requests !== "number" ||
-        !Number.isInteger(requests) ||
-        requests <= 0
-      ) {
-        results.push({ index: i, ok: false, error: "invalid_item" });
-        continue;
-      }
-      const key = usageKey(tenantId, agent, serviceId);
-      const total = Math.min(
-        Number.MAX_SAFE_INTEGER,
-        (usageStore.get(key) ?? 0) + requests
-      );
-      usageStore.set(key, total);
-
-      recordEvent("usage.recorded", { agent, serviceId, requests, total });
-      res.status(201).json({ agent, serviceId, total });
-    }
-  );
-
   router.post(
     "/api/v1/usage/bulk",
+    idempotency,
     validateBody(requestBodySchemas.bulkUsage),
     (req: Request, res: Response) => {
       const { items } = req.body as BulkUsageBody;
       const results: BulkUsageResult[] = [];
+      const tenantId = resolveTenantId(req);
       for (let i = 0; i < items.length; i++) {
         const { agent, serviceId, requests } = (items[i] ?? {}) as {
           agent?: unknown;
@@ -167,12 +134,13 @@ export function createUsageRouter(): Router {
           results.push({ index: i, ok: false, error: "invalid_item" });
           continue;
         }
-        const key = usageKey(agent, serviceId);
+        const key = usageKey(tenantId, agent, serviceId);
         const total = Math.min(
           Number.MAX_SAFE_INTEGER,
           (usageStore.get(key) ?? 0) + requests
         );
         usageStore.set(key, total);
+        lifetimeRequests = Math.min(Number.MAX_SAFE_INTEGER, lifetimeRequests + requests);
         recordEvent("usage.recorded", {
           agent,
           serviceId,
