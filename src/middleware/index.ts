@@ -3,9 +3,9 @@ import express, {
   type Application,
   type NextFunction,
   type Request,
-  type RequestHandler,
   type Response,
 } from "express";
+import { verifyApiKey, timingSafeEqualSecret } from "../auth/apiKeys.js";
 import { logger, logRequestCompletion } from "../logger.js";
 import {
   apiKeyStore,
@@ -24,7 +24,9 @@ import type { AgentPayRequest } from "../types.js";
 export function installPreRouteMiddleware(app: Application): void {
   app.use(createCorsMiddleware());
   app.use(requestIdMiddleware);
+  app.use(apiKeyAuthMiddleware);
   app.use(express.json({ limit: "100kb" }));
+  app.use(requireJsonContentTypeForBodyWrites);
   app.use(securityHeadersMiddleware);
 }
 
@@ -35,6 +37,47 @@ export function installPreRouteMiddleware(app: Application): void {
 export function installRequestStateMiddleware(app: Application): void {
   app.use(pauseGuardMiddleware);
   app.use(rateLimitMiddleware);
+}
+
+function normalizeCorsOrigin(origin: string): string | undefined {
+  const trimmed = origin.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return undefined;
+    }
+    if (parsed.pathname !== "/" || parsed.search.length > 0 || parsed.hash.length > 0) {
+      return undefined;
+    }
+    return `${parsed.protocol}//${parsed.host.toLowerCase()}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseCorsOrigins(rawOrigins: string | undefined): Set<string> {
+  if (!rawOrigins || rawOrigins.trim().length === 0) {
+    return new Set<string>();
+  }
+
+  const trimmed = rawOrigins.trim();
+  if (trimmed === "*") {
+    throw new Error("CORS_ALLOWED_ORIGINS wildcard is not supported");
+  }
+
+  const allowed = new Set<string>();
+  for (const token of trimmed.split(",")) {
+    const normalized = normalizeCorsOrigin(token);
+    if (!normalized) {
+      console.warn(`Ignoring malformed CORS origin in CORS_ALLOWED_ORIGINS: ${token.trim()}`);
+      continue;
+    }
+    allowed.add(normalized);
+  }
+  return allowed;
 }
 
 /**
@@ -70,41 +113,73 @@ function createCorsMiddleware() {
 }
 
 /**
- * Helmet owns the standard response hardening header set. The CSP is tuned for
- * this JSON API surface: no document subresources are expected, framing is
- * denied, and explicit script/style directives avoid inline or eval fallbacks.
+ * Rejects write requests that carry a non-empty payload without declaring
+ * JSON as the request media type. Bodyless writes are allowed so admin and
+ * synthetic webhook probes remain usable without a content-type header.
  */
-const securityHeadersMiddleware = helmet({
-  contentSecurityPolicy: {
-    useDefaults: false,
-    directives: {
-      defaultSrc: ["'none'"],
-      baseUri: ["'none'"],
-      connectSrc: ["'none'"],
-      fontSrc: ["'none'"],
-      formAction: ["'none'"],
-      frameAncestors: ["'none'"],
-      imgSrc: ["'none'"],
-      manifestSrc: ["'none'"],
-      mediaSrc: ["'none'"],
-      objectSrc: ["'none'"],
-      scriptSrc: ["'none'"],
-      scriptSrcAttr: ["'none'"],
-      styleSrc: ["'none'"],
-      workerSrc: ["'none'"],
-    },
-  },
-  referrerPolicy: { policy: "no-referrer" },
-  strictTransportSecurity: {
-    maxAge: 63_072_000,
-    includeSubDomains: true,
-    preload: true,
-  },
-  xFrameOptions: { action: "deny" },
-});
+function requireJsonContentTypeForBodyWrites(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  const method = req.method.toUpperCase();
+  if (method !== "POST" && method !== "PUT" && method !== "PATCH") {
+    next();
+    return;
+  }
+
+  const contentLength = req.header("content-length");
+  const transferEncoding = req.header("transfer-encoding");
+  const hasPayload =
+    (contentLength !== undefined && contentLength !== "0") ||
+    (transferEncoding !== undefined && transferEncoding.length > 0);
+
+  if (!hasPayload) {
+    next();
+    return;
+  }
+
+  if (req.is("application/json")) {
+    next();
+    return;
+  }
+
+  res.status(415).json({
+    error: "unsupported_media_type",
+    message: "write requests with a body must use Content-Type: application/json",
+    requestId: (req as AgentPayRequest).id,
+  });
+}
+
+/**
+ * Applies the API's hardening headers to every response path without pulling in
+ * a browser-document framing dependency.
+ */
+const securityHeadersMiddleware = (
+  _req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader(
+    "Strict-Transport-Security",
+    "max-age=63072000; includeSubDomains; preload"
+  );
+  res.setHeader(
+    "Permissions-Policy",
+    "geolocation=(), camera=(), microphone=()"
+  );
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; base-uri 'none'; connect-src 'none'; font-src 'none'; form-action 'none'; frame-ancestors 'none'; img-src 'none'; manifest-src 'none'; media-src 'none'; object-src 'none'; script-src 'none'; script-src-attr 'none'; style-src 'none'; worker-src 'none'"
+  );
+  next();
+};
 
 /** Keeps the API's explicit browser feature restrictions. */
-function permissionsPolicyMiddleware(
+function _permissionsPolicyMiddleware(
   _req: Request,
   res: Response,
   next: NextFunction
@@ -212,25 +287,75 @@ export function deriveRateLimitKey(req: Request): string {
   return `ip:${req.ip ?? req.socket.remoteAddress ?? "unknown"}`;
 }
 
+/** Prunes stale rate-limit buckets without mutating active hit windows. */
+export function pruneExpiredRateBuckets(now: number, windowMs: number): number {
+  const staleKeys: string[] = [];
+  for (const [key, hits] of rateBuckets.entries()) {
+    const recentHits = hits.filter((hit) => now - hit < windowMs);
+    if (recentHits.length === 0) {
+      staleKeys.push(key);
+      continue;
+    }
+    if (recentHits.length !== hits.length) {
+      rateBuckets.set(key, recentHits);
+    }
+  }
+  for (const key of staleKeys) {
+    rateBuckets.delete(key);
+  }
+  return staleKeys.length;
+}
+
+/** Records one rate-limit hit and returns whether the request is still allowed. */
+export function applyRateLimitHit(
+  key: string,
+  now: number,
+  rateLimitPerWindow: number,
+  rateLimitWindowMs: number
+): { allowed: true } | { allowed: false; retryAfterSeconds: number } {
+  pruneExpiredRateBuckets(now, rateLimitWindowMs);
+  const bucket = rateBuckets.get(key) ?? [];
+  if (bucket.length >= rateLimitPerWindow) {
+    const oldest = bucket[0] ?? now;
+    const retryAfterSeconds = Math.max(
+      1,
+      Math.ceil((rateLimitWindowMs - (now - oldest)) / 1000)
+    );
+    return { allowed: false, retryAfterSeconds };
+  }
+
+  bucket.push(now);
+  rateBuckets.set(key, bucket);
+  return { allowed: true };
+}
+
 /** In-process rate limiter keyed by API key or trusted client IP. */
 function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (process.env.NODE_ENV === "test") return next();
   const key = deriveRateLimitKey(req);
   const now = Date.now();
-  const bucket = (rateBuckets.get(key) ?? []).filter(
-    (t) => now - t < RATE_LIMIT_WINDOW_MS
+  const bucket = rateBuckets.get(key) ?? [];
+  const allowed = applyRateLimitHit(key, now, RATE_LIMIT_PER_WINDOW, RATE_LIMIT_WINDOW_MS);
+  const remaining = Math.max(0, RATE_LIMIT_PER_WINDOW - (rateBuckets.get(key)?.length ?? 0));
+  const resetSeconds = Math.max(
+    1,
+    Math.ceil((RATE_LIMIT_WINDOW_MS - (now - (bucket[0] ?? now))) / 1000)
   );
-  if (bucket.length >= RATE_LIMIT_PER_WINDOW) {
-    res.setHeader("Retry-After", "60");
+
+  res.setHeader("RateLimit-Limit", String(RATE_LIMIT_PER_WINDOW));
+  res.setHeader("RateLimit-Remaining", String(remaining));
+  res.setHeader("RateLimit-Reset", String(resetSeconds));
+
+  if (!allowed.allowed) {
+    res.setHeader("Retry-After", String(allowed.retryAfterSeconds));
     res.status(429).json({
       error: "rate_limited",
-      message: `more than ${rateLimitPerWindow} requests per ${rateLimitWindowMs / 1000}s`,
+      message: `more than ${RATE_LIMIT_PER_WINDOW} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s`,
       requestId: (req as AgentPayRequest).id,
     });
     return;
   }
-  bucket.push(now);
-  rateBuckets.set(key, bucket);
+
   next();
 }
 
@@ -239,7 +364,7 @@ function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): v
  * header before headers flush, then logs the final structured duration on
  * finish. The header intentionally exposes only the total app duration.
  */
-function requestTimerMiddleware(req: Request, res: Response, next: NextFunction): void {
+function _requestTimerMiddleware(req: Request, res: Response, next: NextFunction): void {
   const startNs = process.hrtime.bigint();
   const originalWriteHead = res.writeHead.bind(res);
   let serverTimingApplied = false;
