@@ -90,13 +90,6 @@ export function parseUsageKey(key: string): {
   return { tenantId, agent, serviceId };
 }
 
-/** Builds the shared in-memory usage key for an agent/service pair. */
-export const usageKey = (
-  agent: string,
-  serviceId: string,
-  tenantId = IMPLICIT_TENANT_ID
-) => tenantUsageKey(tenantId, agent, serviceId);
-
 /** Registered services and their per-request prices, keyed by tenant-aware id. */
 export const servicesStore = new Map<string, { priceStroops: number }>();
 

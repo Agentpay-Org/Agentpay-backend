@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { Request } from "express";
 import type { AgentPayRequest } from "./types.js";
 
@@ -13,9 +12,9 @@ export const DEFAULT_TENANT_ID = "public";
  * all callers share the legacy public tenant.
  */
 export function resolveTenantId(req: Request): string {
-  const apiKey = (req as AgentPayRequest).apiKey;
-  if (typeof apiKey !== "string" || apiKey.length === 0) {
-    return DEFAULT_TENANT_ID;
+  const apiKeyHash = (req as AgentPayRequest).apiKeyHash;
+  if (typeof apiKeyHash === "string" && apiKeyHash.length > 0) {
+    return `api:${apiKeyHash}`;
   }
-  return `api:${createHash("sha256").update(apiKey).digest("hex")}`;
+  return DEFAULT_TENANT_ID;
 }

@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import express, {
   type Application,
   type NextFunction,
@@ -204,10 +204,9 @@ function pauseGuardMiddleware(req: Request, res: Response, next: NextFunction): 
  * otherwise falling back to Express' trusted client IP.
  */
 export function deriveRateLimitKey(req: Request): string {
-  const apiKey = (req as AgentPayRequest).apiKey;
-  if (apiKey) {
-    const digest = createHash("sha256").update(apiKey).digest("hex");
-    return `api-key:${digest}`;
+  const apiKeyHash = (req as AgentPayRequest).apiKeyHash;
+  if (apiKeyHash) {
+    return `api-key:${apiKeyHash}`;
   }
   return `ip:${req.ip ?? req.socket.remoteAddress ?? "unknown"}`;
 }
