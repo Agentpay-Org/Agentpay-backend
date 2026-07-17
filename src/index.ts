@@ -1,4 +1,4 @@
-import express from "express";
+import express, { type Express } from "express";
 import type { Server } from "node:http";
 import {
   logger,
