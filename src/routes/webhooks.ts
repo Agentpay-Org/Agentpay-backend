@@ -95,21 +95,29 @@ export function createWebhooksRouter(): Router {
     }
 
     if (url !== undefined) {
-      if (typeof url !== "string" || !/^https?:\/\//.test(url) || url.length > 2048) {
+      const result = validateWebhookUrl(url);
+      if (!result.ok) {
         res.status(400).json({
           error: "invalid_request",
-          message: "url must be an http(s) URL up to 2048 chars",
+          message: result.message,
           requestId,
         });
         return;
       }
-      existing.url = url;
+      existing.url = result.value;
     }
-
     if (events !== undefined) {
-      existing.events = events;
+      const result = validateWebhookEvents(events);
+      if (!result.ok) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: result.message,
+          requestId,
+        });
+        return;
+      }
+      existing.events = result.value;
     }
-
     webhookStore.set(id, existing);
     res.json({ id, ...existing });
   });

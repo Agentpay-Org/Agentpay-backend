@@ -61,6 +61,9 @@ export function parseServiceKey(key: string): {
 /** Outstanding usage counters keyed by tenant/agent/service. */
 export const usageStore = new Map<string, number>();
 
+/** Monotonic counter for total requests ever metered, unaffected by settlement. */
+export let lifetimeRequests = 0;
+
 /** Builds the shared in-memory usage key for an agent/service pair. */
 export function usageKey(a: string, b: string, c?: string): string {
   if (c === undefined) {

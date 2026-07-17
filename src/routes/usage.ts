@@ -4,6 +4,7 @@ import { recordEvent } from "../events.js";
 import { createIdempotencyMiddleware } from "../middleware/idempotency.js";
 import { validateBody } from "../middleware/validate.js";
 import {
+  lifetimeRequests,
   parseUsageKey,
   serviceKey,
   servicesDisabled,
@@ -79,6 +80,7 @@ export function createUsageRouter(): Router {
     const prev = usageStore.get(key) ?? 0;
     const total = Math.min(Number.MAX_SAFE_INTEGER, prev + requests);
     usageStore.set(key, total);
+    lifetimeRequests = Math.min(Number.MAX_SAFE_INTEGER, lifetimeRequests + requests);
 
     recordEvent("usage.recorded", { agent, serviceId, requests, total });
     res.status(201).json({ agent, serviceId, total });
@@ -93,7 +95,7 @@ export function createUsageRouter(): Router {
       const tenantId = resolveTenantId(req);
       const { items } = req.body as BulkUsageBody;
       const results: BulkUsageResult[] = [];
-
+      const tenantId = resolveTenantId(req);
       for (let i = 0; i < items.length; i++) {
         const { agent, serviceId, requests } = items[i] ?? {};
 
@@ -107,15 +109,20 @@ export function createUsageRouter(): Router {
           results.push({ index: i, ok: false, error: "invalid_item" });
           continue;
         }
-
         const key = usageKey(tenantId, agent, serviceId);
         const total = Math.min(
           Number.MAX_SAFE_INTEGER,
           (usageStore.get(key) ?? 0) + requests
         );
         usageStore.set(key, total);
-
-        recordEvent("usage.recorded", { agent, serviceId, requests, total, bulk: true });
+        lifetimeRequests = Math.min(Number.MAX_SAFE_INTEGER, lifetimeRequests + requests);
+        recordEvent("usage.recorded", {
+          agent,
+          serviceId,
+          requests,
+          total,
+          bulk: true,
+        });
         results.push({ index: i, ok: true, total });
       }
 

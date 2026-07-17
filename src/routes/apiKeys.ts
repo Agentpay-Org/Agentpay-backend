@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { createApiKeyRecord } from "../auth/apiKeys.js";
+import { validateBody } from "../middleware/validate.js";
+import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { apiKeyStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
 import { validateBody } from "../middleware/validate.js";
@@ -46,20 +48,7 @@ export function createApiKeysRouter(): Router {
     validateBody(requestBodySchemas.apiKeyCreate),
     (req: Request, res: Response) => {
       const { label } = req.body ?? {};
-      const requestId = getRequestId(req);
-
-      if (typeof label !== "string" || label.length === 0 || label.length > 100) {
-        res.status(400).json({
-          error: "invalid_request",
-          message: "label must be a non-empty string up to 100 characters",
-          requestId,
-        });
-        return;
-      }
-
-      const result = createApiKeyRecord(label);
-      const { key, hash, record } = result;
-
+      const { key, hash, record } = createApiKeyRecord(label);
       apiKeyStore.set(hash, record);
       res.status(201).json({ key, label });
     }
