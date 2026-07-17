@@ -33,6 +33,28 @@ function invalidIdentifierMessage(kind: "agent" | "serviceId"): string {
   return `${kind} must be 1-${max} chars using only letters, numbers, dot, underscore, or hyphen`;
 }
 
+/**
+ * Validates a single usage item for both the single and bulk ingestion paths.
+ * Returns null when valid, or an error string when invalid.
+ * Enforces: agent (non-empty, ≤256 chars), serviceId (non-empty, ≤128 chars),
+ * requests (positive integer).
+ */
+function validateUsageItem(
+  agent: unknown,
+  serviceId: unknown,
+  requests: unknown
+): string | null {
+  if (!isValidAgentId(agent)) return "invalid_item";
+  if (!isValidServiceId(serviceId)) return "invalid_item";
+  if (
+    typeof requests !== "number" ||
+    !Number.isInteger(requests) ||
+    requests <= 0
+  )
+    return "invalid_item";
+  return null;
+}
+
 export function createUsageRouter(): Router {
   const router = Router();
   const idempotency = createIdempotencyMiddleware();
@@ -42,26 +64,16 @@ export function createUsageRouter(): Router {
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
 
-    if (!isValidAgentId(agent)) {
+    const validationError = validateUsageItem(agent, serviceId, requests);
+    if (validationError) {
+      const message = !isValidAgentId(agent)
+        ? invalidIdentifierMessage("agent")
+        : !isValidServiceId(serviceId)
+          ? invalidIdentifierMessage("serviceId")
+          : "requests must be a positive integer";
       res.status(400).json({
         error: "invalid_request",
-        message: invalidIdentifierMessage("agent"),
-        requestId,
-      });
-      return;
-    }
-    if (!isValidServiceId(serviceId)) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: invalidIdentifierMessage("serviceId"),
-        requestId,
-      });
-      return;
-    }
-    if (typeof requests !== "number" || !Number.isInteger(requests) || requests <= 0) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "requests must be a positive integer",
+        message,
         requestId,
       });
       return;
@@ -95,18 +107,17 @@ export function createUsageRouter(): Router {
       const tenantId = resolveTenantId(req);
       const { items } = req.body as BulkUsageBody;
       const results: BulkUsageResult[] = [];
-      const tenantId = resolveTenantId(req);
       for (let i = 0; i < items.length; i++) {
         const { agent, serviceId, requests } = items[i] ?? {};
 
-        if (
-          !isValidAgentId(agent) ||
-          !isValidServiceId(serviceId) ||
-          typeof requests !== "number" ||
-          !Number.isInteger(requests) ||
-          requests <= 0
-        ) {
-          results.push({ index: i, ok: false, error: "invalid_item" });
+        const itemError = validateUsageItem(agent, serviceId, requests);
+        if (itemError) {
+          results.push({ index: i, ok: false, error: itemError });
+          continue;
+        }
+
+        if (servicesDisabled.has(serviceKey(tenantId, serviceId))) {
+          results.push({ index: i, ok: false, error: "service_disabled" });
           continue;
         }
         const key = usageKey(tenantId, agent, serviceId);
