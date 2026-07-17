@@ -420,6 +420,33 @@ a recognized key continue to use Express' trusted client IP. Only enable
    }
    ```
 
+## Delete-cascade semantics
+
+Deleting a service via `DELETE /api/v1/services/:serviceId` removes the
+registration entry and cascades cleanup to all associated metadata and
+configuration state. Outstanding usage counters are intentionally retained for
+billing and audit compliance.
+
+| Store               | Cleared on delete? | Rationale                                    |
+| ------------------- | ------------------ | -------------------------------------------- |
+| `servicesStore`      | ✅ Yes              | Registration entry and `priceStroops` removed |
+| `servicesMetadata`   | ✅ Yes              | `description` and `owner` metadata purged     |
+| `servicesDisabled`   | ✅ Yes              | Disabled flag removed                         |
+| `usageStore`         | ❌ No               | Retained for settlement and audit compliance  |
+
+A `service.deleted` audit event is recorded on every successful deletion and is
+visible via `GET /api/v1/events`. The event payload contains only the deleted
+`serviceId`.
+
+**Re-registration after delete:** A service can be re-registered with the same
+`serviceId` via `POST /api/v1/services`. The new registration starts with a
+clean slate — no inherited metadata, no disabled flag. Pre-existing usage
+counters from the previous registration remain intact and can be settled against
+the new registration's `priceStroops`.
+
+**Settlement after delete:** `POST /api/v1/settle` returns `404 not_found` for a
+deleted service. Re-register the service first, then settle at the new price.
+
 ## Error responses
 
 Write endpoints return stable JSON envelopes for body-level failures. Malformed

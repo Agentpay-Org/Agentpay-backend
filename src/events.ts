@@ -12,6 +12,7 @@ export const DEFAULT_EVENT_LOG_CAP = 10_000;
 export const eventLog: AppEvent[] = [];
 
 export const KNOWN_EVENT_TYPES = [
+  "service.deleted",
   "usage.recorded",
   "usage.settled",
   "webhook.test",

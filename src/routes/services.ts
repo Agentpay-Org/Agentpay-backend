@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { recordEvent } from "../events.js";
 import { isValidServiceId } from "../identifiers.js";
 import {
   parseServiceKey,
@@ -354,6 +355,23 @@ export function createServicesRouter(): Router {
     res.json({ serviceId, ...meta });
   });
 
+  /**
+   * Removes a registered service and cascades cleanup to all associated state.
+   *
+   * **Cleared on delete:**
+   * - `servicesStore` — the service registration entry and its `priceStroops`.
+   * - `servicesMetadata` — optional `description` and `owner` metadata.
+   * - `servicesDisabled` — the disabled-flag if the service was paused.
+   *
+   * **Retained on delete:**
+   * - Outstanding `usageStore` entries for the service are intentionally
+   *   preserved so that already-metered usage can still be settled and billed.
+   *   A subsequent `POST /api/v1/settle` for the deleted service will return
+   *   `404 not_found` until the service is re-registered, but the counters
+   *   remain intact for auditing and data-retention compliance.
+   *
+   * A `service.deleted` audit event is recorded on every successful deletion.
+   */
   router.delete("/api/v1/services/:serviceId", (req: Request, res: Response) => {
     const { serviceId } = req.params;
     const tenantId = resolveTenantId(req);
@@ -369,6 +387,7 @@ export function createServicesRouter(): Router {
     servicesStore.delete(key);
     servicesDisabled.delete(key);
     servicesMetadata.delete(key);
+    recordEvent("service.deleted", { serviceId });
     res.status(204).send();
   });
 
