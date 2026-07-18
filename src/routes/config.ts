@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { validateBody } from "../middleware/validate.js";
 import { requestBodySchemas } from "../schemas/requestBodies.js";
-import { config } from "../store/state.js";
+import { BULK_MAX_ITEMS_LIMIT, config } from "../store/state.js";
 
 const allowedConfigKeys = [
   "rateLimitPerWindow",
@@ -15,13 +15,17 @@ const allowedConfigKeys = [
 
 type ConfigKey = (typeof allowedConfigKeys)[number];
 
-const configBounds: Record<ConfigKey, { min: number; max?: number }> = {
+const configBounds: Record<string, { min: number; max?: number }> = {
   rateLimitPerWindow: { min: 1 },
   rateLimitWindowMs: { min: 1 },
   bulkMaxItems: { min: 1, max: BULK_MAX_ITEMS_LIMIT },
+  usageStoreMaxKeys: { min: 1 },
+  servicesStoreMaxKeys: { min: 1 },
+  webhookStoreMaxKeys: { min: 1 },
+  apiKeyStoreMaxKeys: { min: 1 },
 };
 
-function configValidationMessage(key: ConfigKey): string {
+function _configValidationMessage(key: ConfigKey): string {
   const bounds = configBounds[key];
   if (bounds.max !== undefined) {
     return `${key} must be an integer between ${bounds.min} and ${bounds.max}`;

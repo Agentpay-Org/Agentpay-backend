@@ -1,5 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { isValidServiceId } from "../identifiers.js";
+import { validateBody } from "../middleware/validate.js";
+import { parseIntParam } from "../queryParams.js";
+import { requestBodySchemas } from "../schemas/requestBodies.js";
 import {
   parseServiceKey,
   parseUsageKey,
@@ -7,11 +10,12 @@ import {
   servicesDisabled,
   servicesMetadata,
   servicesStore,
+  type ServiceMetadataDto,
   usageStore,
 } from "../store/state.js";
 import { resolveTenantId } from "../tenant.js";
 import { getRequestId } from "../types.js";
-import { scanByService } from "../usageScan.js";
+import { etagFor } from "../httpCache.js";
 
 type ServiceReadShape = {
   serviceId: string;
@@ -25,7 +29,7 @@ function invalidServiceIdMessage(): string {
   return "serviceId must be 1-128 chars using only letters, numbers, dot, underscore, or hyphen";
 }
 
-function rejectInvalidServicePath(
+function _rejectInvalidServicePath(
   req: Request,
   res: Response,
   serviceId: unknown
@@ -40,13 +44,20 @@ function rejectInvalidServicePath(
   return true;
 }
 
+function sendServiceNotFound(req: Request, res: Response, serviceId: string): void {
+  res.status(404).json({
+    error: "not_found",
+    message: `service ${serviceId} is not registered`,
+    requestId: getRequestId(req),
+  });
+}
+
 /**
  * Builds the public read shape for service detail and list endpoints.
  */
 function serviceReadShape(
   tenantId: string,
   serviceId: string,
-  storeKey: string,
   meta: { priceStroops: number }
 ): ServiceReadShape {
   const key = serviceKey(tenantId, serviceId);
@@ -60,7 +71,7 @@ function serviceReadShape(
 }
 
 /** Validates service metadata for both inline registration and metadata updates. */
-function validateServiceMetadata(
+function _validateServiceMetadata(
   description: unknown,
   owner: unknown
 ): { metadata: ServiceMetadataDto } | { message: string } {
@@ -73,11 +84,16 @@ function validateServiceMetadata(
   return { metadata: { description, owner } };
 }
 
+type ServiceAgentUsage = {
+  total: number;
+  items: { agent: string; total: number }[];
+};
+
 /**
  * Builds a per-service usage rollup. `total` preserves all outstanding usage
  * math, while `items` includes only agents with non-zero outstanding usage.
  */
-function serviceAgentUsage(serviceId: string): ServiceAgentUsage {
+function _serviceAgentUsage(serviceId: string): ServiceAgentUsage {
   const suffix = `::${serviceId}`;
   let total = 0;
   const agentTotals = new Map<string, number>();

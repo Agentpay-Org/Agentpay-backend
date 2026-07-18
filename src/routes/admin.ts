@@ -3,7 +3,6 @@ import { eventLog, recordEvent, type AppEvent } from "../events.js";
 import {
   apiKeyStore,
   config,
-  DEFAULT_CONFIG,
   pauseState,
   rateBuckets,
   servicesDisabled,
@@ -51,7 +50,9 @@ function getResetSummary(): AdminResetSummary {
 }
 
 function resetConfig(): void {
-  Object.assign(config, DEFAULT_CONFIG);
+  for (const k of Object.keys(config)) {
+    config[k] = 0;
+  }
 }
 
 function clearInMemoryState(): { cleared: AdminResetSummary; auditEvent: AppEvent } {

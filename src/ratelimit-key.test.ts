@@ -72,8 +72,8 @@ void describe("rate-limit key derivation", () => {
     const app = createApp();
     const firstKey = "apk_first_tenant";
     const secondKey = "apk_second_tenant";
-    apiKeyStore.set(firstKey, { label: "first", createdAt: Date.now() });
-    apiKeyStore.set(secondKey, { label: "second", createdAt: Date.now() });
+    apiKeyStore.set(firstKey, { label: "first", createdAt: Date.now(), prefix: "first" });
+    apiKeyStore.set(secondKey, { label: "second", createdAt: Date.now(), prefix: "second" });
 
     for (let i = 0; i < RATE_LIMIT_PER_WINDOW; i += 1) {
       const res = await request(app).get("/api/v1/version").set("X-API-Key", firstKey);

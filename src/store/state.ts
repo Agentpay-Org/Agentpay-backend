@@ -14,8 +14,13 @@ export type WebhookRecord = { url: string; events: string[]; createdAt: number }
 /** Mirrors the on-chain pause flag for write-gated endpoints. */
 export const pauseState = { paused: false };
 
-const DEFAULT_RATE_LIMIT_PER_WINDOW = 60;
-const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
+export const DEFAULT_RATE_LIMIT_PER_WINDOW = 60;
+export const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
+
+/** Aliases consumed by the rate-limit middleware. */
+export const RATE_LIMIT_PER_WINDOW = DEFAULT_RATE_LIMIT_PER_WINDOW;
+export const RATE_LIMIT_WINDOW_MS = DEFAULT_RATE_LIMIT_WINDOW_MS;
+export const BULK_MAX_ITEMS_LIMIT = 1000;
 
 /** Runtime-tunable in-memory configuration returned by /api/v1/config. */
 export const config: Record<string, number> = {
@@ -28,6 +33,9 @@ export const config: Record<string, number> = {
   webhookStoreMaxKeys: 10_000,
   apiKeyStoreMaxKeys: 10_000,
 };
+
+/** Read-only snapshot of default config values for admin reset. */
+export const DEFAULT_CONFIG: Record<string, number> = { ...config };
 
 /** Opaque API keys keyed by SHA-256 hash, never by the live secret token. */
 export const apiKeyStore = new Map<string, ApiKeyRecord>();
@@ -63,6 +71,16 @@ export const usageStore = new Map<string, number>();
 
 /** Monotonic counter for total requests ever metered, unaffected by settlement. */
 export let lifetimeRequests = 0;
+
+export function addLifetimeRequests(amount: number): number {
+  lifetimeRequests = Math.min(Number.MAX_SAFE_INTEGER, lifetimeRequests + amount);
+  return lifetimeRequests;
+}
+
+/** Resets the lifetime counter for test isolation. */
+export function resetLifetimeRequests(): void {
+  lifetimeRequests = 0;
+}
 
 /** Builds the shared in-memory usage key for an agent/service pair. */
 export function usageKey(a: string, b: string, c?: string): string {
@@ -107,3 +125,9 @@ export const webhookStore = new Map<string, WebhookRecord>();
 
 /** Rate-limiter windows keyed by authenticated API key digest or trusted IP. */
 export const rateBuckets = new Map<string, number[]>();
+
+/** Lifetime settlement counters for metrics and stats. */
+export const settlementCounters = {
+  settledStroopsTotal: 0,
+  settlementsTotal: 0,
+};

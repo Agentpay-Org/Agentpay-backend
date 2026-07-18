@@ -1,6 +1,6 @@
-import { Buffer } from "node:buffer";
 import { Router, type Request, type Response } from "express";
 import { EVENT_LOG_CAP, eventLog } from "../events.js";
+import { etagFor } from "../httpCache.js";
 import { parseIntParam } from "../queryParams.js";
 
 /**

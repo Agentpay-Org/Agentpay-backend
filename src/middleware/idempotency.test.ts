@@ -162,8 +162,8 @@ void describe("Idempotency-Key handling", () => {
 
   void it("namespaces idempotency keys by recognized API key", async () => {
     const app = createAppWithIdempotencyEnv({});
-    apiKeyStore.set("tenant-a-secret", { label: "tenant-a", createdAt: Date.now() });
-    apiKeyStore.set("tenant-b-secret", { label: "tenant-b", createdAt: Date.now() });
+    apiKeyStore.set("tenant-a-secret", { label: "tenant-a", createdAt: Date.now(), prefix: "tenant-a" });
+    apiKeyStore.set("tenant-b-secret", { label: "tenant-b", createdAt: Date.now(), prefix: "tenant-b" });
     const payload = {
       agent: "agent-idem-tenant",
       serviceId: "svc-idem-tenant",

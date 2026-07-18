@@ -54,6 +54,15 @@ placeholders.
 | `CORS_ALLOWED_ORIGINS` | empty | Comma-separated allowlist for browser CORS origins. When empty, the backend does not emit `Access-Control-Allow-Origin`; when an incoming `Origin` exactly matches an entry, the middleware echoes that origin and related CORS headers. |
 | `NODE_ENV` | unset | Runtime mode. Set to `test` only for automated tests; in test mode the in-process rate limiter is skipped and per-request JSON logs are suppressed. |
 
+### OpenAPI route index
+
+The server exposes a hand-written OpenAPI 3.0.3 document at `GET /api/v1/openapi.json`
+that lists every registered primary route with summary lines. A CI test
+(`src/openapi-routes.test.ts`) walks the Express router stack and asserts the
+document is in parity — all registered routes appear in the paths object — so
+additions or removals of routes must be reflected in the handler at
+`src/routes/meta.ts`.
+
 ## Project structure
 
 ```
