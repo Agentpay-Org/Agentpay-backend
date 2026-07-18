@@ -226,16 +226,16 @@ export const requestBodySchemas = {
     }),
   }),
   bulkServices: strictObjectSchema({
-    items: arrayField("items must be 1-50 entries", {
+    items: arrayField("items must be 1-1000 entries", {
       minItems: 1,
-      maxItems: 50,
+      maxItems: 1000,
       itemSchema: serviceItemSchema,
     }),
   }),
   bulkUsage: strictObjectSchema({
-    items: arrayField("items must be a non-empty array of up to 100 entries", {
+    items: arrayField("items must be a non-empty array of up to 1000 entries", {
       minItems: 1,
-      maxItems: 100,
+      maxItems: 1000,
       itemSchema: usageItemSchema,
     }),
   }),

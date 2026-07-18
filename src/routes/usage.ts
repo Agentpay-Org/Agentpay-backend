@@ -4,6 +4,7 @@ import { recordEvent } from "../events.js";
 import { createIdempotencyMiddleware } from "../middleware/idempotency.js";
 import { validateBody } from "../middleware/validate.js";
 import {
+  config,
   lifetimeRequests,
   parseUsageKey,
   serviceKey,
@@ -86,6 +87,11 @@ export function createUsageRouter(): Router {
     res.status(201).json({ agent, serviceId, total });
   });
 
+  /**
+   * Records usage for up to config.bulkMaxItems agent/service pairs in a single
+   * batch.  The active limit is controlled by PATCH /api/v1/config (default 100,
+   * max 1000).  Invalid items are reported individually without failing the rest.
+   */
   router.post(
     "/api/v1/usage/bulk",
     idempotency,
@@ -94,8 +100,15 @@ export function createUsageRouter(): Router {
       const requestId = getRequestId(req);
       const tenantId = resolveTenantId(req);
       const { items } = req.body as BulkUsageBody;
+      if (items.length > config.bulkMaxItems) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: `items must be a non-empty array of up to ${config.bulkMaxItems} entries`,
+          requestId,
+        });
+        return;
+      }
       const results: BulkUsageResult[] = [];
-      const tenantId = resolveTenantId(req);
       for (let i = 0; i < items.length; i++) {
         const { agent, serviceId, requests } = items[i] ?? {};
 

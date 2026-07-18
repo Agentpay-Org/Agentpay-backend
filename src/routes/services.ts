@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { isValidServiceId } from "../identifiers.js";
 import {
+  config,
   parseServiceKey,
   parseUsageKey,
   serviceKey,
@@ -103,15 +104,19 @@ function serviceAgentUsage(serviceId: string): ServiceAgentUsage {
 export function createServicesRouter(): Router {
   const router = Router();
 
-  /** Registers up to 50 services while rejecting duplicate ids in the same batch. */
+  /**
+   * Registers up to config.bulkMaxItems services in a single batch while
+   * rejecting duplicate ids within the same request.  The active limit is
+   * controlled by PATCH /api/v1/config (default 100, max 1000).
+   */
   router.post("/api/v1/services/bulk", (req: Request, res: Response) => {
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
     const { items } = req.body ?? {};
-    if (!Array.isArray(items) || items.length === 0 || items.length > 50) {
+    if (!Array.isArray(items) || items.length === 0 || items.length > config.bulkMaxItems) {
       res.status(400).json({
         error: "invalid_request",
-        message: "items must be 1-50 entries",
+        message: `items must be 1-${config.bulkMaxItems} entries`,
         requestId,
       });
       return;

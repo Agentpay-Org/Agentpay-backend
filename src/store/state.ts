@@ -29,6 +29,8 @@ export const config: Record<string, number> = {
   apiKeyStoreMaxKeys: 10_000,
 };
 
+export const DEFAULT_CONFIG = { ...config };
+
 /** Opaque API keys keyed by SHA-256 hash, never by the live secret token. */
 export const apiKeyStore = new Map<string, ApiKeyRecord>();
 

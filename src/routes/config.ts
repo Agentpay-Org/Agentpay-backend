@@ -3,6 +3,8 @@ import { validateBody } from "../middleware/validate.js";
 import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { config } from "../store/state.js";
 
+const BULK_MAX_ITEMS_LIMIT = 1000;
+
 const allowedConfigKeys = [
   "rateLimitPerWindow",
   "rateLimitWindowMs",
