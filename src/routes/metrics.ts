@@ -5,6 +5,7 @@ import {
   lifetimeRequests,
   pauseState,
   servicesStore,
+  settlementCounters,
   usageStore,
   webhookStore,
 } from "../store/state.js";

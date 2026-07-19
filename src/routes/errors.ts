@@ -31,7 +31,7 @@ function isPayloadTooLargeError(err: unknown): boolean {
   );
 }
 
-function isMalformedJsonError(err: unknown): boolean {
+function _isMalformedJsonError(err: unknown): boolean {
   if (!(err instanceof SyntaxError)) return false;
   const expressError = err as ExpressError;
   return (
@@ -91,18 +91,18 @@ export function installErrorHandlers(app: Application): void {
       res.status(413).json({
         error: "payload_too_large",
         message: "request body exceeds the 100 KiB limit",
-        requestId,
+        requestId: getRequestId(req),
       });
       return;
     }
 
-    logInternalError(err, req, requestId);
+    logInternalError(err, req, requestIdForError(req));
     res.status(500).json({
       error: "internal_error",
       message: "Unexpected server error",
       method: req.method,
       path: req.path,
-      requestId,
+      requestId: requestIdForError(req),
     });
   });
 }

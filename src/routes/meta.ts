@@ -1,9 +1,10 @@
-import { Router, type Response } from "express";
+import { Router, type Request, type Response } from "express";
 import {
   jsonRequestBodyRef,
   openApiRequestBodyComponents,
 } from "../schemas/requestBodies.js";
 import { pauseState } from "../store/state.js";
+import { isReady } from "../readiness.js";
 
 /** Reports whether this process should receive fresh traffic. */
 export function handleReadiness(_req: Request, res: Response): void {
@@ -59,7 +60,14 @@ export function createMetaRouter(): Router {
     });
   });
 
-  /** Serves the hand-written OpenAPI route index for the registered API surface. */
+  /**
+   * Serves the hand-written OpenAPI route index for the registered API surface.
+   *
+   * This object must be kept in sync with the routes registered across all
+   * router modules. The test in `src/openapi-routes.test.ts` walks the Express
+   * router stack and asserts every primary route appears in `paths`, so any
+   * addition or removal of a route must be mirrored here.
+   */
   router.get("/api/v1/openapi.json", (_req, res: Response) => {
     res.json({
       openapi: "3.0.3",
@@ -103,14 +111,16 @@ export function createMetaRouter(): Router {
             requestBody: jsonRequestBodyRef("bulkServices"),
           },
         },
-        "/api/v1/services/bulk": { post: { summary: "Bulk register services" } },
         "/api/v1/services/{serviceId}": {
           get: { summary: "Fetch one service" },
           delete: { summary: "Unregister service" },
         },
         "/api/v1/services/{serviceId}/metadata": {
           get: { summary: "Fetch service metadata" },
-          put: { summary: "Set service metadata" },
+          put: {
+            summary: "Set service metadata",
+            requestBody: jsonRequestBodyRef("serviceMetadataPut"),
+          },
         },
         "/api/v1/services/{serviceId}/price": {
           patch: {
@@ -118,21 +128,11 @@ export function createMetaRouter(): Router {
             requestBody: jsonRequestBodyRef("servicePricePatch"),
           },
         },
-        "/api/v1/services/{serviceId}/metadata": {
-          get: { summary: "Read service metadata" },
-          put: {
-            summary: "Set service metadata",
-            requestBody: jsonRequestBodyRef("serviceMetadataPut"),
-          },
-        },
         "/api/v1/services/{serviceId}/disabled": {
           patch: {
             summary: "Enable or disable a service",
             requestBody: jsonRequestBodyRef("serviceDisabledPatch"),
           },
-        },
-        "/api/v1/services/{serviceId}/disabled": {
-          patch: { summary: "Update disabled state" },
         },
         "/api/v1/services/{serviceId}/usage": {
           get: { summary: "Service usage total" },
@@ -143,9 +143,6 @@ export function createMetaRouter(): Router {
         "/api/v1/services/{serviceId}/agents/top": {
           get: { summary: "Top agents on a service" },
         },
-        "/api/v1/agents": { get: { summary: "List agents" } },
-        "/api/v1/agents/{agent}/usage": { get: { summary: "Per-service usage" } },
-        "/api/v1/agents/{agent}/total": { get: { summary: "Lifetime total" } },
         "/api/v1/usage": {
           post: {
             summary: "Record usage",
@@ -158,53 +155,9 @@ export function createMetaRouter(): Router {
             requestBody: jsonRequestBodyRef("bulkUsage"),
           },
         },
-        "/api/v1/usage/{agent}/{serviceId}": { get: { summary: "Read accumulator" } },
-        "/api/v1/billing/total": {
-          get: {
-            summary: "Quote protocol-wide outstanding bill",
-            responses: {
-              "200": {
-                description:
-                  "Billing totals with decimal-string stroop amounts for exact JSON precision.",
-                content: {
-                  "application/json": {
-                    schema: { $ref: "#/components/schemas/BillingTotal" },
-                  },
-                },
-              },
-            },
-          },
-        },
-        "/api/v1/billing/{agent}/{serviceId}": {
-          get: {
-            summary: "Quote bill",
-            responses: {
-              "200": {
-                description:
-                  "Pair billing quote with billedStroops serialized as a decimal string.",
-                content: {
-                  "application/json": {
-                    schema: { $ref: "#/components/schemas/BillingQuote" },
-                  },
-                },
-              },
-            },
-          },
-        },
         "/api/v1/settle": {
           post: {
             summary: "Drain & quote bill",
-            responses: {
-              "200": {
-                description:
-                  "Settlement quote with billedStroops serialized as a decimal string.",
-                content: {
-                  "application/json": {
-                    schema: { $ref: "#/components/schemas/BillingQuote" },
-                  },
-                },
-              },
-            },
           },
         },
         "/api/v1/api-keys": {
@@ -223,60 +176,23 @@ export function createMetaRouter(): Router {
           },
         },
         "/api/v1/webhooks/{id}": {
+          get: { summary: "Fetch one webhook" },
           delete: { summary: "Unregister webhook" },
           patch: {
             summary: "Update webhook",
             requestBody: jsonRequestBodyRef("webhookPatch"),
           },
         },
+        "/api/v1/webhooks/{id}/test": {
+          post: { summary: "Simulate webhook delivery" },
+        },
         "/api/v1/admin/pause": { post: { summary: "Pause writes" } },
         "/api/v1/admin/unpause": { post: { summary: "Resume" } },
         "/api/v1/admin/status": { get: { summary: "Read pause flag" } },
+        "/api/v1/admin/reset": { post: { summary: "Clear all in-memory state" } },
       },
       components: {
-        schemas: {
-          BillingQuote: {
-            type: "object",
-            properties: {
-              agent: { type: "string" },
-              serviceId: { type: "string" },
-              requests: { type: "integer", minimum: 0 },
-              priceStroops: { type: "integer", minimum: 0 },
-              billedStroops: {
-                type: "string",
-                pattern: "^[0-9]+$",
-                description:
-                  "Exact decimal stroop amount. String-typed to avoid JSON number precision loss.",
-              },
-            },
-            required: [
-              "agent",
-              "serviceId",
-              "requests",
-              "priceStroops",
-              "billedStroops",
-            ],
-          },
-          BillingTotal: {
-            type: "object",
-            properties: {
-              totalStroops: {
-                type: "string",
-                pattern: "^[0-9]+$",
-                description:
-                  "Exact decimal stroop total. String-typed to avoid JSON number precision loss.",
-              },
-              disabledStroops: {
-                type: "string",
-                pattern: "^[0-9]+$",
-                description:
-                  "Exact decimal stroop total for disabled services included in billing totals.",
-              },
-              unpricedRequests: { type: "integer", minimum: 0 },
-            },
-            required: ["totalStroops", "disabledStroops", "unpricedRequests"],
-          },
-        },
+        schemas: openApiRequestBodyComponents as Record<string, unknown>,
       },
     });
   });

@@ -1,4 +1,5 @@
-import express from "express";
+import express, { type Express } from "express";
+import type { EventEmitter } from "node:events";
 import type { Server } from "node:http";
 import {
   logger,
@@ -21,7 +22,7 @@ import { createMetricsRouter } from "./routes/metrics.js";
 import { createServicesRouter } from "./routes/services.js";
 import { createUsageRouter } from "./routes/usage.js";
 import { createWebhooksRouter } from "./routes/webhooks.js";
-import { markShuttingDown } from "./readiness.js";
+import { markShuttingDown as _markShuttingDown } from "./readiness.js";
 
 const PORT = process.env.PORT ?? 3001;
 const DRAIN_TIMEOUT_MS = 10_000;
@@ -146,6 +147,40 @@ function createApp(): Express {
 
 const app = createApp();
 
+/**
+ * Configures Express trust proxy based on TRUST_PROXY env var.
+ */
+function configureTrustProxy(app: Express): void {
+  const raw = process.env.TRUST_PROXY;
+  if (raw) {
+    const n = Number(raw);
+    app.set("trust proxy", Number.isFinite(n) && n >= 0 ? n : 1);
+  }
+}
+
+/**
+ * Parses PORT from environment with validation.
+ */
+function resolvePort(
+  env: NodeJS.ProcessEnv = process.env
+): number {
+  const raw = env.PORT;
+  if (raw === undefined) return 3001;
+  const n = Number(raw);
+  if (
+    !Number.isFinite(n) ||
+    !Number.isInteger(n) ||
+    n < 1 ||
+    n > 65535 ||
+    String(n) !== raw.trim()
+  ) {
+    throw new Error(
+      `PORT must be an integer between 1 and 65535, got ${JSON.stringify(raw)}`
+    );
+  }
+  return n;
+}
+
 /** Returns true when this module is the launched server entrypoint. */
 function isServerEntrypoint(argv = process.argv): boolean {
   const entrypoint = argv[1] ?? "";
@@ -255,4 +290,13 @@ if (isServerEntrypoint()) {
   process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
-export { app, configureServerTimeouts, createApp, DEFAULT_SERVER_TIMEOUTS };
+export {
+  app,
+  configureServerTimeouts,
+  createApp,
+  createShutdownController,
+  DEFAULT_SERVER_TIMEOUTS,
+  installProcessFaultHandlers,
+  isServerEntrypoint,
+  resolvePort,
+};

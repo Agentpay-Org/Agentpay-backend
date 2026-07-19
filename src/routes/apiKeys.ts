@@ -4,8 +4,6 @@ import { validateBody } from "../middleware/validate.js";
 import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { apiKeyStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
-import { validateBody } from "../middleware/validate.js";
-import { requestBodySchemas } from "../schemas/index.js";
 
 /**
  * Builds API-key listing, creation, and prefix revocation routes.
@@ -47,8 +45,8 @@ export function createApiKeysRouter(): Router {
     "/api/v1/api-keys",
     validateBody(requestBodySchemas.apiKeyCreate),
     (req: Request, res: Response) => {
-      const { label } = req.body ?? {};
-      const { key, hash, record } = createApiKeyRecord(label);
+      const { label } = req.body as { label?: unknown };
+      const { key, hash, record } = createApiKeyRecord(label as string);
       apiKeyStore.set(hash, record);
       res.status(201).json({ key, label });
     }

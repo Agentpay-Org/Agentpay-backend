@@ -17,7 +17,7 @@ beforeEach(() => {
   pauseState.paused = false;
   servicesDisabled.clear();
   servicesStore.clear();
-  settlementCounters.settledStroopsTotal = 0n;
+  settlementCounters.settledStroopsTotal = 0;
   settlementCounters.settlementsTotal = 0;
   usageStore.clear();
 });

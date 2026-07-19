@@ -9,6 +9,22 @@ import { getRequestId } from "../types.js";
 export type WebhookValidationResult<T> = 
   { ok: true; value: T } | { ok: false; message: string };
 
+export function validateWebhookUrl(url: unknown): WebhookValidationResult<string> {
+  if (typeof url !== "string" || url.length > 2048 || !/^https?:\/\//.test(url)) {
+    return { ok: false, message: "url must be an http(s) URL up to 2048 chars" };
+  }
+  return { ok: true, value: url };
+}
+
+export function validateWebhookEvents(
+  events: unknown
+): WebhookValidationResult<string[]> {
+  if (!Array.isArray(events) || events.length === 0 || events.some((e) => typeof e !== "string")) {
+    return { ok: false, message: "events must be a non-empty array of strings" };
+  }
+  return { ok: true, value: events };
+}
+
 /**
  * Builds webhook registration, update, deletion, and synthetic test routes.
  */

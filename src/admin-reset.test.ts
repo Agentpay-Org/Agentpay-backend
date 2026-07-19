@@ -40,7 +40,7 @@ function restoreAllowAdminReset(): void {
 }
 
 function seedState(): void {
-  apiKeyStore.set("apk_seeded", { label: "ops", createdAt: 1 });
+  apiKeyStore.set("apk_seeded", { label: "ops", createdAt: 1, prefix: "apk_see" });
   rateBuckets.set("127.0.0.1", [1, 2, 3]);
   servicesDisabled.add("svc-reset");
   servicesMetadata.set("svc-reset", { description: "demo", owner: "ops" });

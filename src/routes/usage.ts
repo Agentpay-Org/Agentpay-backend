@@ -4,19 +4,17 @@ import { recordEvent } from "../events.js";
 import { createIdempotencyMiddleware } from "../middleware/idempotency.js";
 import { validateBody } from "../middleware/validate.js";
 import {
-  config,
-  lifetimeRequests,
-  parseUsageKey,
+  addLifetimeRequests,
   serviceKey,
   servicesDisabled,
   servicesStore,
+  settlementCounters,
   usageKey,
   usageStore,
 } from "../store/state.js";
 import { resolveTenantId } from "../tenant.js";
 import { getRequestId } from "../types.js";
-import { multiplyStroops } from "../util/stroops.js";
-import { requestBodySchemas } from "../schemas/index.js";
+import { requestBodySchemas } from "../schemas/requestBodies.js";
 
 type BulkUsageResult = {
   index: number;
@@ -26,8 +24,37 @@ type BulkUsageResult = {
 };
 
 type BulkUsageBody = {
-  items: Array<{ agent: string; serviceId: string; requests: number }>;
+  items: { agent: string; serviceId: string; requests: number }[];
 };
+
+/**
+ * Neutralises CSV formula-injection characters by prefixing with a single
+ * quote. Follows the OWASP CSV injection guidance.
+ */
+export function escapeCsvField(value: string): string {
+  const needsQuote =
+    value.includes(",") || value.includes('"') || value.includes("\n") || value.includes("\r");
+
+  if (
+    value.startsWith("=") ||
+    value.startsWith("+") ||
+    value.startsWith("-") ||
+    value.startsWith("@") ||
+    value.startsWith("\t") ||
+    value.startsWith("\r")
+  ) {
+    const neutralised = `'${value}`;
+    if (needsQuote) {
+      return `"${neutralised.replace(/"/g, '""')}"`;
+    }
+    return neutralised;
+  }
+
+  if (needsQuote) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
 
 function invalidIdentifierMessage(kind: "agent" | "serviceId"): string {
   const max = kind === "agent" ? 256 : 128;
@@ -81,7 +108,7 @@ export function createUsageRouter(): Router {
     const prev = usageStore.get(key) ?? 0;
     const total = Math.min(Number.MAX_SAFE_INTEGER, prev + requests);
     usageStore.set(key, total);
-    lifetimeRequests = Math.min(Number.MAX_SAFE_INTEGER, lifetimeRequests + requests);
+    addLifetimeRequests(requests);
 
     recordEvent("usage.recorded", { agent, serviceId, requests, total });
     res.status(201).json({ agent, serviceId, total });
@@ -97,7 +124,7 @@ export function createUsageRouter(): Router {
     idempotency,
     validateBody(requestBodySchemas.bulkUsage),
     (req: Request, res: Response) => {
-      const requestId = getRequestId(req);
+      const _requestId = getRequestId(req);
       const tenantId = resolveTenantId(req);
       const { items } = req.body as BulkUsageBody;
       if (items.length > config.bulkMaxItems) {
@@ -128,7 +155,7 @@ export function createUsageRouter(): Router {
           (usageStore.get(key) ?? 0) + requests
         );
         usageStore.set(key, total);
-        lifetimeRequests = Math.min(Number.MAX_SAFE_INTEGER, lifetimeRequests + requests);
+        addLifetimeRequests(requests);
         recordEvent("usage.recorded", {
           agent,
           serviceId,
@@ -160,6 +187,8 @@ export function createUsageRouter(): Router {
     const price = servicesStore.get(serviceKey(tenantId, serviceId))?.priceStroops ?? 0;
     const billedStroops = requests * price;
     usageStore.set(key, 0);
+    settlementCounters.settledStroopsTotal += billedStroops;
+    settlementCounters.settlementsTotal += 1;
     recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
     res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
   });

@@ -68,8 +68,8 @@ void describe("stats and prometheus metrics", () => {
     const app = createApp();
     servicesStore.set("svc-a", { priceStroops: 3 });
     servicesStore.set("svc-b", { priceStroops: 5 });
-    apiKeyStore.set("apk_one", { label: "one", createdAt: 1 });
-    apiKeyStore.set("apk_two", { label: "two", createdAt: 2 });
+    apiKeyStore.set("apk_one", { label: "one", createdAt: 1, prefix: "apk_one" });
+    apiKeyStore.set("apk_two", { label: "two", createdAt: 2, prefix: "apk_two" });
     usageStore.set("agent-a::svc-a", 4);
     usageStore.set("agent-a::svc-b", 6);
     usageStore.set("agent-b::svc-a", 9);
@@ -88,7 +88,7 @@ void describe("stats and prometheus metrics", () => {
     const app = createApp();
     servicesStore.set("svc-a", { priceStroops: 3 });
     servicesStore.set("svc-b", { priceStroops: 5 });
-    apiKeyStore.set("apk_one", { label: "one", createdAt: 1 });
+    apiKeyStore.set("apk_one", { label: "one", createdAt: 1, prefix: "apk_one" });
     usageStore.set("agent-a::svc-a", 4);
     usageStore.set("agent-b::svc-b", 8);
 

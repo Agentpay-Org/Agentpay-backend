@@ -4,13 +4,13 @@ import * as state from "./store/state.js";
 import { app } from "./index.js";
 import supertest from "supertest";
 
-describe("lifetime-metrics", () => {
+void describe("lifetime-metrics", () => {
   beforeEach(() => {
     state.usageStore.clear();
-    state.lifetimeRequests = 0;
+    state.resetLifetimeRequests();
   });
 
-  it("increments lifetimeRequests on record", async () => {
+  void it("increments lifetimeRequests on record", async () => {
     await supertest(app)
       .post("/api/v1/usage")
       .send({ agent: "agent-a", serviceId: "svc-a", requests: 5 });
@@ -18,7 +18,7 @@ describe("lifetime-metrics", () => {
     assert.strictEqual(state.lifetimeRequests, 5);
   });
 
-  it("keeps lifetimeRequests after settlement drains outstanding usage", async () => {
+  void it("keeps lifetimeRequests after settlement drains outstanding usage", async () => {
     await supertest(app)
       .post("/api/v1/usage")
       .send({ agent: "agent-a", serviceId: "svc-a", requests: 5 });
@@ -31,7 +31,7 @@ describe("lifetime-metrics", () => {
     assert.strictEqual(state.usageStore.get("agent-a::svc-a"), 0);
   });
 
-  it("increments lifetimeRequests for each valid bulk usage item", async () => {
+  void it("increments lifetimeRequests for each valid bulk usage item", async () => {
     await supertest(app)
       .post("/api/v1/usage/bulk")
       .send({
@@ -44,7 +44,7 @@ describe("lifetime-metrics", () => {
     assert.strictEqual(state.lifetimeRequests, 7);
   });
 
-  it("exposes lifetimeRequests in /stats", async () => {
+  void it("exposes lifetimeRequests in /stats", async () => {
     await supertest(app)
       .post("/api/v1/usage")
       .send({ agent: "agent-a", serviceId: "svc-a", requests: 5 });
@@ -53,7 +53,7 @@ describe("lifetime-metrics", () => {
     assert.strictEqual(response.body.lifetimeRequests, 5);
   });
 
-  it("exposes agentpay_requests_recorded_total in /metrics", async () => {
+  void it("exposes agentpay_requests_recorded_total in /metrics", async () => {
     await supertest(app)
       .post("/api/v1/usage")
       .send({ agent: "agent-a", serviceId: "svc-a", requests: 5 });

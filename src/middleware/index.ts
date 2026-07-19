@@ -10,9 +10,9 @@ import { logger, logRequestCompletion } from "../logger.js";
 import {
   apiKeyStore,
   pauseState,
-  rateBuckets,
   RATE_LIMIT_PER_WINDOW,
   RATE_LIMIT_WINDOW_MS,
+  rateBuckets,
 } from "../store/state.js";
 import { recordHttpRequest } from "../metrics.js";
 import type { AgentPayRequest } from "../types.js";
