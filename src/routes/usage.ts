@@ -5,6 +5,7 @@ import { createIdempotencyMiddleware } from "../middleware/idempotency.js";
 import { validateBody } from "../middleware/validate.js";
 import {
   addLifetimeRequests,
+  config,
   serviceKey,
   servicesDisabled,
   servicesStore,
@@ -124,7 +125,7 @@ export function createUsageRouter(): Router {
     idempotency,
     validateBody(requestBodySchemas.bulkUsage),
     (req: Request, res: Response) => {
-      const _requestId = getRequestId(req);
+      const requestId = getRequestId(req);
       const tenantId = resolveTenantId(req);
       const { items } = req.body as BulkUsageBody;
       if (items.length > config.bulkMaxItems) {
