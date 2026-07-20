@@ -11,6 +11,7 @@ import {
   settlementCounters,
   usageKey,
   usageStore,
+  config,
 } from "../store/state.js";
 import { resolveTenantId } from "../tenant.js";
 import { getRequestId } from "../types.js";
@@ -124,7 +125,7 @@ export function createUsageRouter(): Router {
     idempotency,
     validateBody(requestBodySchemas.bulkUsage),
     (req: Request, res: Response) => {
-      const _requestId = getRequestId(req);
+      const requestId = getRequestId(req);
       const tenantId = resolveTenantId(req);
       const { items } = req.body as BulkUsageBody;
       if (items.length > config.bulkMaxItems) {

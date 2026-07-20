@@ -429,6 +429,17 @@ a recognized key continue to use Express' trusted client IP. Only enable
    }
    ```
 
+## Webhooks
+
+The backend supports outbound webhooks. When registering or updating a webhook, the `events` array must contain only strings from the known event taxonomy. The currently supported event types are:
+
+- `usage.recorded`: Emitted when new usage is recorded for a service.
+- `usage.settled`: Emitted when a usage bill is settled and counters are drained.
+- `webhook.test`: Emitted via the `/api/v1/webhooks/:id/test` endpoint to verify connectivity.
+- `*`: The wildcard wildcard subscribes the webhook to all known event types.
+
+Unknown event types are rejected with a `400 invalid_request` on `POST` and `PATCH`.
+
 ## Error responses
 
 Write endpoints return stable JSON envelopes for body-level failures. Malformed
