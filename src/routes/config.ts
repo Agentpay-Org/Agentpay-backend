@@ -2,8 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { validateBody } from "../middleware/validate.js";
 import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { BULK_MAX_ITEMS_LIMIT, config } from "../store/state.js";
-
-const BULK_MAX_ITEMS_LIMIT = 1000;
+import { getRequestId } from "../types.js";
 
 const allowedConfigKeys = [
   "rateLimitPerWindow",
@@ -27,7 +26,7 @@ const configBounds: Record<string, { min: number; max?: number }> = {
   apiKeyStoreMaxKeys: { min: 1 },
 };
 
-function _configValidationMessage(key: ConfigKey): string {
+function configValidationMessage(key: ConfigKey): string {
   const bounds = configBounds[key];
   if (bounds.max !== undefined) {
     return `${key} must be an integer between ${bounds.min} and ${bounds.max}`;
@@ -50,9 +49,26 @@ export function createConfigRouter(): Router {
     validateBody(requestBodySchemas.configPatch),
     (req: Request, res: Response) => {
       const updates = req.body ?? {};
+      const requestId = getRequestId(req);
       for (const k of allowedConfigKeys) {
         if (k in updates) {
           const v = updates[k];
+          const bounds = configBounds[k];
+          if (bounds) {
+            if (
+              typeof v !== "number" ||
+              !Number.isInteger(v) ||
+              v < bounds.min ||
+              (bounds.max !== undefined && v > bounds.max)
+            ) {
+              res.status(400).json({
+                error: "invalid_request",
+                message: configValidationMessage(k),
+                requestId,
+              });
+              return;
+            }
+          }
           config[k] = v;
         }
       }
