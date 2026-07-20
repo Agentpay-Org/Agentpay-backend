@@ -19,7 +19,7 @@ export const KNOWN_EVENT_TYPES = [
   "*",
 ] as const;
 
-function trimEventLogToCap(): void {
+export function trimEventLogToCap(): void {
   while (eventLog.length > config.eventLogCap) {
     eventLog.shift();
   }

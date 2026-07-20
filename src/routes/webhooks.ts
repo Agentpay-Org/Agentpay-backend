@@ -69,6 +69,16 @@ export function createWebhooksRouter(): Router {
     res.json({ items: allItems, total: allItems.length });
   });
 
+  /**
+   * Fetches a single webhook by ID.
+   *
+   * Returns `{ id, url, events, createdAt }` — the same field shape as each
+   * item in the `GET /api/v1/webhooks` list response — so callers can confirm
+   * the result of a PATCH without re-listing every webhook.
+   *
+   * Responds with `404 not_found` (including a `requestId` for correlation)
+   * when the ID is not registered or has already been deleted.
+   */
   router.get("/api/v1/webhooks/:id", (req: Request, res: Response) => {
     const { id } = req.params;
     const hook = webhookStore.get(id);
