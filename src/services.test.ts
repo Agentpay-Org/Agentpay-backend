@@ -1,6 +1,7 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert";
 import request from "supertest";
+import { eventLog } from "./events.js";
 import { app } from "./index.js";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -22,6 +23,7 @@ async function createService(serviceId: string, priceStroops = 100) {
 // test files doesn't bleed over.
 beforeEach(async () => {
   await request(app).post("/api/v1/admin/unpause");
+  eventLog.length = 0;
 });
 
 // ─── Services CRUD ────────────────────────────────────────────────────────────
@@ -365,4 +367,128 @@ void describe("POST /api/v1/services/bulk", () => {
       assert.strictEqual(res.body.error, "invalid_request");
     });
   }
+});
+
+// ─── Service enable / disable endpoints ───────────────────────────────────────
+
+void describe("POST /api/v1/services/:serviceId/disable and /enable", () => {
+  void it("POST disable sets disabled=true and emits service.disabled event", async () => {
+    const id = sid();
+    await createService(id, 10);
+
+    const res = await request(app).post(`/api/v1/services/${id}/disable`);
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(res.body, { serviceId: id, disabled: true });
+
+    // Confirm disabled state persisted via GET
+    const fetched = await request(app).get(`/api/v1/services/${id}`);
+    assert.strictEqual(fetched.body.disabled, true);
+
+    // Audit event emitted
+    const events = eventLog.filter((e) => e.type === "service.disabled");
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].payload.serviceId, id);
+  });
+
+  void it("POST enable sets disabled=false and emits service.enabled event", async () => {
+    const id = sid();
+    await createService(id, 10);
+
+    // Disable first, then enable
+    await request(app).post(`/api/v1/services/${id}/disable`);
+    const res = await request(app).post(`/api/v1/services/${id}/enable`);
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(res.body, { serviceId: id, disabled: false });
+
+    // Confirm enabled state persisted via GET
+    const fetched = await request(app).get(`/api/v1/services/${id}`);
+    assert.strictEqual(fetched.body.disabled, false);
+
+    // Audit event emitted
+    const events = eventLog.filter((e) => e.type === "service.enabled");
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].payload.serviceId, id);
+  });
+
+  void it("POST disable is idempotent (calling twice still disabled)", async () => {
+    const id = sid();
+    await createService(id, 10);
+
+    const first = await request(app).post(`/api/v1/services/${id}/disable`);
+    assert.strictEqual(first.status, 200);
+    assert.strictEqual(first.body.disabled, true);
+
+    const second = await request(app).post(`/api/v1/services/${id}/disable`);
+    assert.strictEqual(second.status, 200);
+    assert.strictEqual(second.body.disabled, true);
+
+    // Two audit events should have been emitted (idempotent but still records)
+    const events = eventLog.filter((e) => e.type === "service.disabled");
+    assert.strictEqual(events.length, 2);
+  });
+
+  void it("POST enable is idempotent (calling twice still enabled)", async () => {
+    const id = sid();
+    await createService(id, 10);
+
+    const first = await request(app).post(`/api/v1/services/${id}/enable`);
+    assert.strictEqual(first.status, 200);
+    assert.strictEqual(first.body.disabled, false);
+
+    const second = await request(app).post(`/api/v1/services/${id}/enable`);
+    assert.strictEqual(second.status, 200);
+    assert.strictEqual(second.body.disabled, false);
+
+    // Two audit events should have been emitted (idempotent but still records)
+    const events = eventLog.filter((e) => e.type === "service.enabled");
+    assert.strictEqual(events.length, 2);
+  });
+
+  void it("POST disable on unregistered service returns 404", async () => {
+    const res = await request(app).post("/api/v1/services/no-such-svc/disable");
+    assert.strictEqual(res.status, 404);
+    assert.strictEqual(res.body.error, "not_found");
+    assert.ok(res.body.requestId);
+  });
+
+  void it("POST enable on unregistered service returns 404", async () => {
+    const res = await request(app).post("/api/v1/services/no-such-svc/enable");
+    assert.strictEqual(res.status, 404);
+    assert.strictEqual(res.body.error, "not_found");
+    assert.ok(res.body.requestId);
+  });
+
+  void it("POST disable prevents usage recording (409)", async () => {
+    const id = sid();
+    await createService(id, 10);
+
+    await request(app).post(`/api/v1/services/${id}/disable`);
+    const usage = await request(app)
+      .post("/api/v1/usage")
+      .send({ agent: "ag", serviceId: id, requests: 1 });
+    assert.strictEqual(usage.status, 409);
+    assert.strictEqual(usage.body.error, "service_disabled");
+  });
+
+  void it("POST enable after disable allows usage recording again", async () => {
+    const id = sid();
+    await createService(id, 10);
+
+    await request(app).post(`/api/v1/services/${id}/disable`);
+    await request(app).post(`/api/v1/services/${id}/enable`);
+
+    const usage = await request(app)
+      .post("/api/v1/usage")
+      .send({ agent: "ag", serviceId: id, requests: 1 });
+    assert.strictEqual(usage.status, 201);
+  });
+
+  void it("POST enable on a never-disabled service still succeeds (idempotent)", async () => {
+    const id = sid();
+    await createService(id, 10);
+
+    const res = await request(app).post(`/api/v1/services/${id}/enable`);
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.disabled, false);
+  });
 });

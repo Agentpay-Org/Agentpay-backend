@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { recordEvent } from "../events.js";
 import { isValidServiceId } from "../identifiers.js";
 import { validateBody } from "../middleware/validate.js";
 import { parseIntParam } from "../queryParams.js";
@@ -310,6 +311,44 @@ export function createServicesRouter(): Router {
       return;
     }
     res.json({ serviceId, ...meta });
+  });
+
+  /** Idempotently disables a registered service and emits an audit event. */
+  router.post("/api/v1/services/:serviceId/disable", (req: Request, res: Response) => {
+    const { serviceId } = req.params;
+    const requestId = getRequestId(req);
+    const tenantId = resolveTenantId(req);
+    const key = serviceKey(tenantId, serviceId);
+    if (!servicesStore.has(key)) {
+      res.status(404).json({
+        error: "not_found",
+        message: `service ${serviceId} is not registered`,
+        requestId,
+      });
+      return;
+    }
+    servicesDisabled.add(key);
+    recordEvent("service.disabled", { serviceId, tenantId });
+    res.json({ serviceId, disabled: true });
+  });
+
+  /** Idempotently enables a registered service and emits an audit event. */
+  router.post("/api/v1/services/:serviceId/enable", (req: Request, res: Response) => {
+    const { serviceId } = req.params;
+    const requestId = getRequestId(req);
+    const tenantId = resolveTenantId(req);
+    const key = serviceKey(tenantId, serviceId);
+    if (!servicesStore.has(key)) {
+      res.status(404).json({
+        error: "not_found",
+        message: `service ${serviceId} is not registered`,
+        requestId,
+      });
+      return;
+    }
+    servicesDisabled.delete(key);
+    recordEvent("service.enabled", { serviceId, tenantId });
+    res.json({ serviceId, disabled: false });
   });
 
   router.patch(
