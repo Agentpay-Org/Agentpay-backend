@@ -4,7 +4,6 @@ import { validateBody } from "../middleware/validate.js";
 import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { BULK_MAX_ITEMS_LIMIT, config } from "../store/state.js";
 
-
 const allowedConfigKeys = [
   "rateLimitPerWindow",
   "rateLimitWindowMs",

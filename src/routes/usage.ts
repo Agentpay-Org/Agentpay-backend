@@ -5,6 +5,7 @@ import { createIdempotencyMiddleware } from "../middleware/idempotency.js";
 import { validateBody } from "../middleware/validate.js";
 import {
   addLifetimeRequests,
+  config,
   serviceKey,
   servicesDisabled,
   servicesStore,
@@ -132,7 +133,7 @@ export function createUsageRouter(): Router {
         res.status(400).json({
           error: "invalid_request",
           message: `items must be a non-empty array of up to ${config.bulkMaxItems} entries`,
-          requestId,
+          requestId: _requestId,
         });
         return;
       }
