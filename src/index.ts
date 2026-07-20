@@ -22,6 +22,7 @@ import { createMetricsRouter } from "./routes/metrics.js";
 import { createServicesRouter } from "./routes/services.js";
 import { createUsageRouter } from "./routes/usage.js";
 import { createWebhooksRouter } from "./routes/webhooks.js";
+export { KNOWN_EVENT_TYPES } from "./events.js";
 import { markShuttingDown as _markShuttingDown } from "./readiness.js";
 
 const PORT = process.env.PORT ?? 3001;

@@ -16,6 +16,7 @@ export const KNOWN_EVENT_TYPES = [
   "usage.recorded",
   "usage.settled",
   "webhook.test",
+  "*",
 ] as const;
 
 function trimEventLogToCap(): void {
