@@ -5,6 +5,7 @@ import { validateBody } from "../middleware/validate.js";
 import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { webhookStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
+import { KNOWN_EVENT_TYPES } from "../events.js";
 
 export type WebhookValidationResult<T> = 
   { ok: true; value: T } | { ok: false; message: string };
@@ -16,13 +17,23 @@ export function validateWebhookUrl(url: unknown): WebhookValidationResult<string
   return { ok: true, value: url };
 }
 
+/**
+ * Validates that the given events input is a non-empty array of strings,
+ * and that every string represents a known event type or wildcard.
+ */
 export function validateWebhookEvents(
   events: unknown
 ): WebhookValidationResult<string[]> {
   if (!Array.isArray(events) || events.length === 0 || events.some((e) => typeof e !== "string")) {
     return { ok: false, message: "events must be a non-empty array of strings" };
   }
-  return { ok: true, value: events };
+  const stringEvents = events as string[];
+  for (const e of stringEvents) {
+    if (!(KNOWN_EVENT_TYPES as readonly string[]).includes(e)) {
+      return { ok: false, message: `unknown event type: ${e}` };
+    }
+  }
+  return { ok: true, value: stringEvents };
 }
 
 /**
@@ -58,6 +69,16 @@ export function createWebhooksRouter(): Router {
     res.json({ items: allItems, total: allItems.length });
   });
 
+  /**
+   * Fetches a single webhook by ID.
+   *
+   * Returns `{ id, url, events, createdAt }` — the same field shape as each
+   * item in the `GET /api/v1/webhooks` list response — so callers can confirm
+   * the result of a PATCH without re-listing every webhook.
+   *
+   * Responds with `404 not_found` (including a `requestId` for correlation)
+   * when the ID is not registered or has already been deleted.
+   */
   router.get("/api/v1/webhooks/:id", (req: Request, res: Response) => {
     const { id } = req.params;
     const hook = webhookStore.get(id);
@@ -143,9 +164,20 @@ export function createWebhooksRouter(): Router {
     validateBody(requestBodySchemas.webhookCreate),
     (req: Request, res: Response) => {
       const { url, events } = req.body ?? {};
+
+      const eventValidation = validateWebhookEvents(events);
+      if (!eventValidation.ok) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: eventValidation.message,
+          requestId: getRequestId(req),
+        });
+        return;
+      }
+
       const id = `wh_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
-      webhookStore.set(id, { url, events, createdAt: Date.now() });
-      res.status(201).json({ id, url, events });
+      webhookStore.set(id, { url, events: eventValidation.value, createdAt: Date.now() });
+      res.status(201).json({ id, url, events: eventValidation.value });
     }
   );
 

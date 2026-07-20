@@ -200,6 +200,47 @@ readinessProbe:
     port: 3001
 ```
 
+
+## Webhooks
+
+The webhook surface provides full CRUD plus a synthetic test delivery. Every
+write endpoint validates input and returns consistent `400 invalid_request`
+envelopes; every read endpoint returns the same field shape
+`{ id, url, events, createdAt }`.
+
+| Method   | Path                          | Description                                         |
+| -------- | ----------------------------- | --------------------------------------------------- |
+| `POST`   | `/api/v1/webhooks`            | Register a new webhook (url + events required)      |
+| `GET`    | `/api/v1/webhooks`            | List all webhooks ordered by `createdAt`            |
+| `GET`    | `/api/v1/webhooks/:id`        | **Fetch one webhook by ID**                         |
+| `PATCH`  | `/api/v1/webhooks/:id`        | Update url and/or events (partial update)           |
+| `DELETE` | `/api/v1/webhooks/:id`        | Unregister a webhook                                |
+| `POST`   | `/api/v1/webhooks/:id/test`   | Simulate delivery and emit a `webhook.test` event   |
+
+### Fetch one webhook
+
+Use `GET /api/v1/webhooks/:id` to confirm a PATCH took effect without
+re-listing every webhook:
+
+```bash
+curl -sS "$BASE_URL/api/v1/webhooks/wh_1234567890abcdef" \
+  -H "X-API-Key: $AGENTPAY_API_KEY"
+```
+
+Response `200 OK`:
+
+```json
+{
+  "id": "wh_1234567890abcdef",
+  "url": "https://your-server.example/hook",
+  "events": ["usage.recorded", "usage.settled"],
+  "createdAt": 1718200000000
+}
+```
+
+Unknown or deleted IDs return `404 not_found` with a `requestId` field for
+correlation, matching the shape of DELETE/PATCH 404 responses.
+
 ## Observability Headers
 
 Every routed response includes a coarse `Server-Timing` header such as

@@ -1,9 +1,9 @@
+import { trimEventLogToCap } from "../events.js";
 import { Router, type Request, type Response } from "express";
 import { validateBody } from "../middleware/validate.js";
 import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { BULK_MAX_ITEMS_LIMIT, config } from "../store/state.js";
 
-const BULK_MAX_ITEMS_LIMIT = 1000;
 
 const allowedConfigKeys = [
   "rateLimitPerWindow",
@@ -13,6 +13,7 @@ const allowedConfigKeys = [
   "servicesStoreMaxKeys",
   "webhookStoreMaxKeys",
   "apiKeyStoreMaxKeys",
+  "eventLogCap",
 ] as const;
 
 type ConfigKey = (typeof allowedConfigKeys)[number];
@@ -25,6 +26,7 @@ const configBounds: Record<string, { min: number; max?: number }> = {
   servicesStoreMaxKeys: { min: 1 },
   webhookStoreMaxKeys: { min: 1 },
   apiKeyStoreMaxKeys: { min: 1 },
+  eventLogCap: { min: 1, max: 100_000 },
 };
 
 function _configValidationMessage(key: ConfigKey): string {
@@ -55,6 +57,9 @@ export function createConfigRouter(): Router {
           const v = updates[k];
           config[k] = v;
         }
+      }
+      if ("eventLogCap" in updates) {
+        trimEventLogToCap();
       }
       res.json({ config });
     }
