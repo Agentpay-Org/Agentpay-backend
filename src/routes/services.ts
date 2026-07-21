@@ -204,7 +204,7 @@ export function createServicesRouter(): Router {
   });
 
   router.get("/api/v1/services/:serviceId/usage", (req: Request, res: Response) => {
-    const { serviceId } = req.params;
+    const serviceId = String(req.params.serviceId);
     const tenantId = resolveTenantId(req);
     let total = 0;
     let agents = 0;
@@ -221,7 +221,7 @@ export function createServicesRouter(): Router {
   router.get(
     "/api/v1/services/:serviceId/agents/top",
     (req: Request, res: Response) => {
-      const { serviceId } = req.params;
+      const serviceId = String(req.params.serviceId);
       const tenantId = resolveTenantId(req);
       const limit = Math.min(
         100,
@@ -240,7 +240,7 @@ export function createServicesRouter(): Router {
   );
 
   router.get("/api/v1/services/:serviceId/agents", (req: Request, res: Response) => {
-    const { serviceId } = req.params;
+    const serviceId = String(req.params.serviceId);
     const tenantId = resolveTenantId(req);
     const items: { agent: string; total: number }[] = [];
     for (const [key, total] of usageStore.entries()) {
@@ -254,7 +254,7 @@ export function createServicesRouter(): Router {
 
   /** Reads one service with its disabled state and optional metadata. */
   router.get("/api/v1/services/:serviceId", (req: Request, res: Response) => {
-    const { serviceId } = req.params;
+    const serviceId = String(req.params.serviceId);
     const tenantId = resolveTenantId(req);
     const meta = servicesStore.get(serviceKey(tenantId, serviceId));
     if (!meta) {
@@ -265,7 +265,7 @@ export function createServicesRouter(): Router {
   });
 
   router.put("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
-    const { serviceId } = req.params;
+    const serviceId = String(req.params.serviceId);
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
     const key = serviceKey(tenantId, serviceId);
@@ -299,7 +299,7 @@ export function createServicesRouter(): Router {
   });
 
   router.get("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
-    const { serviceId } = req.params;
+    const serviceId = String(req.params.serviceId);
     const tenantId = resolveTenantId(req);
     const meta = servicesMetadata.get(serviceKey(tenantId, serviceId));
     if (!meta) {
@@ -315,7 +315,7 @@ export function createServicesRouter(): Router {
 
   /** Idempotently disables a registered service and emits an audit event. */
   router.post("/api/v1/services/:serviceId/disable", (req: Request, res: Response) => {
-    const { serviceId } = req.params;
+    const serviceId = String(req.params.serviceId);
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
     const key = serviceKey(tenantId, serviceId);
@@ -334,7 +334,7 @@ export function createServicesRouter(): Router {
 
   /** Idempotently enables a registered service and emits an audit event. */
   router.post("/api/v1/services/:serviceId/enable", (req: Request, res: Response) => {
-    const { serviceId } = req.params;
+    const serviceId = String(req.params.serviceId);
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
     const key = serviceKey(tenantId, serviceId);
@@ -355,7 +355,7 @@ export function createServicesRouter(): Router {
     "/api/v1/services/:serviceId/disabled",
     validateBody(requestBodySchemas.serviceDisabledPatch),
     (req: Request, res: Response) => {
-      const { serviceId } = req.params;
+      const serviceId = String(req.params.serviceId);
       const requestId = getRequestId(req);
       const tenantId = resolveTenantId(req);
       const key = serviceKey(tenantId, serviceId);
@@ -383,7 +383,7 @@ export function createServicesRouter(): Router {
   );
 
   router.patch("/api/v1/services/:serviceId/price", (req: Request, res: Response) => {
-    const { serviceId } = req.params;
+    const serviceId = String(req.params.serviceId);
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
     const key = serviceKey(tenantId, serviceId);
@@ -415,7 +415,7 @@ export function createServicesRouter(): Router {
   });
 
   router.delete("/api/v1/services/:serviceId", (req: Request, res: Response) => {
-    const { serviceId } = req.params;
+    const serviceId = String(req.params.serviceId);
     const tenantId = resolveTenantId(req);
     const key = serviceKey(tenantId, serviceId);
     if (!servicesStore.has(key)) {

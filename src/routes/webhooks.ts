@@ -43,7 +43,7 @@ export function createWebhooksRouter(): Router {
   const router = Router();
 
   router.delete("/api/v1/webhooks/:id", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     if (!webhookStore.has(id)) {
       res.status(404).json({
         error: "not_found",
@@ -80,7 +80,7 @@ export function createWebhooksRouter(): Router {
    * when the ID is not registered or has already been deleted.
    */
   router.get("/api/v1/webhooks/:id", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const hook = webhookStore.get(id);
     if (!hook) {
       res.status(404).json({
@@ -94,7 +94,7 @@ export function createWebhooksRouter(): Router {
   });
 
   router.post("/api/v1/webhooks/:id/test", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const hook = webhookStore.get(id);
     if (!hook) {
       res.status(404).json({
@@ -109,7 +109,7 @@ export function createWebhooksRouter(): Router {
   });
 
   router.patch("/api/v1/webhooks/:id", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const requestId = getRequestId(req);
     const existing = webhookStore.get(id);
     if (!existing) {

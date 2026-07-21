@@ -12,7 +12,7 @@ export function createApiKeysRouter(): Router {
   const router = Router();
 
   router.delete("/api/v1/api-keys/:prefix", (req: Request, res: Response) => {
-    const { prefix } = req.params;
+    const prefix = String(req.params.prefix);
     let found: string | undefined;
     for (const [hash, meta] of apiKeyStore.entries()) {
       if (meta.prefix === prefix) {

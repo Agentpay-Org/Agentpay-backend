@@ -12,7 +12,6 @@ import {
   settlementCounters,
   usageKey,
   usageStore,
-  config,
 } from "../store/state.js";
 import { resolveTenantId } from "../tenant.js";
 import { getRequestId } from "../types.js";
@@ -133,7 +132,7 @@ export function createUsageRouter(): Router {
         res.status(400).json({
           error: "invalid_request",
           message: `items must be a non-empty array of up to ${config.bulkMaxItems} entries`,
-          requestId: _requestId,
+          requestId,
         });
         return;
       }
