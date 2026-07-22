@@ -135,7 +135,7 @@ function createApp(): Express {
   installRequestStateMiddleware(app);
 
   app.use(createMetaRouter());
-  app.use(createUsageRouter());
+  app.use(createUsageRouter({ stroopsAsNumber: true }));
   app.use(createServicesRouter());
   app.use(createApiKeysRouter());
   app.use(createEventsRouter());
@@ -176,7 +176,7 @@ function resolvePort(
     String(n) !== raw.trim()
   ) {
     throw new Error(
-      `PORT must be an integer between 1 and 65535, got ${JSON.stringify(raw)}`
+      `PORT must be an integer between 1-65535, got ${JSON.stringify(raw)}`
     );
   }
   return n;

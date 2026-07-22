@@ -31,7 +31,7 @@ function isPayloadTooLargeError(err: unknown): boolean {
   );
 }
 
-function _isMalformedJsonError(err: unknown): boolean {
+function isMalformedJsonError(err: unknown): boolean {
   if (!(err instanceof SyntaxError)) return false;
   const expressError = err as ExpressError;
   return (
@@ -92,6 +92,15 @@ export function installErrorHandlers(app: Application): void {
         error: "payload_too_large",
         message: "request body exceeds the 100 KiB limit",
         requestId: getRequestId(req),
+      });
+      return;
+    }
+
+    if (isMalformedJsonError(err)) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: "Malformed JSON in request body",
+        requestId: requestIdForError(req),
       });
       return;
     }

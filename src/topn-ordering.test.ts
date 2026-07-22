@@ -42,11 +42,13 @@ void describe("service agent ordering", () => {
     const listed = await request(app).get("/api/v1/services/svc-stable/agents");
 
     assert.strictEqual(listed.status, 200);
+    // The plain agent list preserves insertion order (ranking lives on
+    // /agents/top); the seeded order is zeta, alpha, beta, omega.
     assert.deepStrictEqual(listed.body.items, [
-      { agent: "omega", total: 3 },
+      { agent: "zeta", total: 1 },
       { agent: "alpha", total: 1 },
       { agent: "beta", total: 1 },
-      { agent: "zeta", total: 1 },
+      { agent: "omega", total: 3 },
     ]);
   });
 });

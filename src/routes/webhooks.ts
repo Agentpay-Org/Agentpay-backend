@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
 import { validateBody } from "../middleware/validate.js";
+import { parseIntParam } from "../queryParams.js";
 import { requestBodySchemas } from "../schemas/requestBodies.js";
-import { webhookStore } from "../store/state.js";
+import { config, hasStoreCapacityFor, webhookStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
 import { KNOWN_EVENT_TYPES } from "../events.js";
 
@@ -57,16 +58,23 @@ export function createWebhooksRouter(): Router {
   });
 
   router.get("/api/v1/webhooks", (req: Request, res: Response) => {
-    // Simplified pagination for now
     const allItems = Array.from(webhookStore.entries())
-      .sort(([idA, metaA], [idB, metaB]) => 
+      .sort(([idA, metaA], [idB, metaB]) =>
         metaA.createdAt - metaB.createdAt || idA.localeCompare(idB)
       )
-      .map(([id, meta]) => ({
-        id,
-        ...meta,
-      }));
-    res.json({ items: allItems, total: allItems.length });
+      .map(([id, meta]) => ({ id, ...meta }));
+    const total = allItems.length;
+    const limit = parseIntParam(req.query.limit, {
+      defaultValue: total || 1,
+      min: 1,
+      max: 1000,
+    });
+    const offset = parseIntParam(req.query.offset, {
+      defaultValue: 0,
+      min: 0,
+      max: Number.MAX_SAFE_INTEGER,
+    });
+    res.json({ items: allItems.slice(offset, offset + limit), total });
   });
 
   /**
@@ -170,6 +178,17 @@ export function createWebhooksRouter(): Router {
         res.status(400).json({
           error: "invalid_request",
           message: eventValidation.message,
+          requestId: getRequestId(req),
+        });
+        return;
+      }
+
+      if (
+        !hasStoreCapacityFor(webhookStore.size, false, config.webhookStoreMaxKeys)
+      ) {
+        res.status(429).json({
+          error: "store_capacity_exceeded",
+          message: "webhook store capacity exceeded",
           requestId: getRequestId(req),
         });
         return;

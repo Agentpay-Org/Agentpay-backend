@@ -46,6 +46,8 @@ function digest(value: string): string {
 function getCallerNamespace(req: Request): string {
   const apiKeyHash = (req as AgentPayRequest).apiKeyHash;
   if (apiKeyHash) return `api-key:${apiKeyHash}`;
+  const suppliedKey = req.header("x-api-key");
+  if (suppliedKey) return `api-key-raw:${digest(suppliedKey)}`;
   return `ip:${req.ip ?? req.socket.remoteAddress ?? "unknown"}`;
 }
 

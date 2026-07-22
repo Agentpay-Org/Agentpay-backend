@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import request from "supertest";
 import { app } from "./index.js";
 import { escapeCsvField } from "./routes/usage.js";
+import { usageKey, usageStore } from "./store/state.js";
 
 void describe("CSV formula injection mitigation", () => {
   void it("neutralizes formula-leading fields before CSV quoting", () => {
@@ -18,9 +19,9 @@ void describe("CSV formula injection mitigation", () => {
   });
 
   void it("neutralizes usage CSV exports without changing JSON exports", async () => {
-    await request(app)
-      .post("/api/v1/usage")
-      .send({ agent: "=cmd", serviceId: "@svc", requests: 1 });
+    // Formula-leading identifiers are rejected by the write API, so seed the
+    // store directly to exercise CSV export escaping end to end.
+    usageStore.set(usageKey("=cmd", "@svc"), 1);
 
     const csv = await request(app).get("/api/v1/usage/export.csv");
     assert.strictEqual(csv.status, 200);

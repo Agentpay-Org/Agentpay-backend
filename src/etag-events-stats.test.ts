@@ -47,8 +47,8 @@ void describe("events and stats conditional GET", () => {
 
     assert.strictEqual(first.status, 200);
     assert.strictEqual(second.status, 200);
-    assert.deepStrictEqual(first.body, { items: [] });
-    assert.deepStrictEqual(second.body, { items: [] });
+    assert.deepStrictEqual(first.body, { total: 0, items: [], nextCursor: null });
+    assert.deepStrictEqual(second.body, { total: 0, items: [], nextCursor: null });
     assert.ok(first.headers.etag, "first filtered events ETag missing");
     assert.ok(second.headers.etag, "second filtered events ETag missing");
     assert.notStrictEqual(first.headers.etag, second.headers.etag);

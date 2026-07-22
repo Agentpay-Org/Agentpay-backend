@@ -71,7 +71,9 @@ void describe("in-memory store caps", () => {
       .post("/api/v1/settle")
       .send({ agent: "agent-a", serviceId: "svc" });
     assert.strictEqual(settled.status, 200);
-    assert.strictEqual(usageStore.has("agent-a::svc"), false);
+    // Settlement drains the counter to zero (freeing cap headroom) but keeps
+    // the key so billing/usage reads remain stable.
+    assert.strictEqual(usageStore.get("agent-a::svc"), 0);
 
     const reused = await request(app)
       .post("/api/v1/usage")

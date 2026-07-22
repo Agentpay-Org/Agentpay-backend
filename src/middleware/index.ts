@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { gzipSync } from "node:zlib";
 import express, {
   type Application,
   type NextFunction,
@@ -7,13 +8,7 @@ import express, {
 } from "express";
 import { verifyApiKey, timingSafeEqualSecret } from "../auth/apiKeys.js";
 import { logger, logRequestCompletion } from "../logger.js";
-import {
-  apiKeyStore,
-  pauseState,
-  RATE_LIMIT_PER_WINDOW,
-  RATE_LIMIT_WINDOW_MS,
-  rateBuckets,
-} from "../store/state.js";
+import { config, apiKeyStore, pauseState, rateBuckets } from "../store/state.js";
 import { recordHttpRequest } from "../metrics.js";
 import type { AgentPayRequest } from "../types.js";
 
@@ -22,12 +17,55 @@ import type { AgentPayRequest } from "../types.js";
  * routes.
  */
 export function installPreRouteMiddleware(app: Application): void {
+  app.use(requestTimerMiddleware);
+  app.use(createCompressionMiddleware());
   app.use(createCorsMiddleware());
   app.use(requestIdMiddleware);
   app.use(apiKeyAuthMiddleware);
   app.use(express.json({ limit: "100kb" }));
   app.use(requireJsonContentTypeForBodyWrites);
   app.use(securityHeadersMiddleware);
+}
+
+/**
+ * Buffers string/Buffer response bodies and gzip-encodes them when the client
+ * negotiates gzip, the response is large enough, and compression is enabled via
+ * the COMPRESSION env flag. Prometheus text exposition is left untouched.
+ */
+function createCompressionMiddleware() {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (process.env.COMPRESSION !== "on") return next();
+    const acceptEncoding = req.header("accept-encoding") ?? "";
+    if (!/\bgzip\b/.test(acceptEncoding)) return next();
+
+    const configured = Number(process.env.COMPRESSION_THRESHOLD_BYTES);
+    const minBytes = Number.isFinite(configured) && configured > 0 ? configured : 1024;
+    const originalSend = res.send.bind(res);
+
+    res.send = ((body?: unknown) => {
+      if (res.statusCode === 304 || res.getHeader("Content-Encoding")) {
+        return originalSend(body as never);
+      }
+      const contentType = String(res.getHeader("Content-Type") ?? "");
+      if (contentType.startsWith("text/plain")) {
+        return originalSend(body as never);
+      }
+      let buffer: Buffer | undefined;
+      if (typeof body === "string") buffer = Buffer.from(body);
+      else if (Buffer.isBuffer(body)) buffer = body;
+      if (!buffer) return originalSend(body as never);
+
+      res.setHeader("Vary", "Accept-Encoding");
+      if (buffer.length < minBytes) return originalSend(buffer as never);
+
+      const gzipped = gzipSync(buffer);
+      res.setHeader("Content-Encoding", "gzip");
+      res.removeHeader("Content-Length");
+      return originalSend(gzipped as never);
+    }) as Response["send"];
+
+    next();
+  };
 }
 
 /**
@@ -283,6 +321,10 @@ export function deriveRateLimitKey(req: Request): string {
   if (apiKeyHash) {
     return `api-key:${apiKeyHash}`;
   }
+  const suppliedKey = req.header("x-api-key");
+  if (suppliedKey) {
+    return `api-key-raw:${suppliedKey}`;
+  }
   return `ip:${req.ip ?? req.socket.remoteAddress ?? "unknown"}`;
 }
 
@@ -331,17 +373,19 @@ export function applyRateLimitHit(
 /** In-process rate limiter keyed by API key or trusted client IP. */
 function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (process.env.NODE_ENV === "test") return next();
+  const perWindow = config.rateLimitPerWindow;
+  const windowMs = config.rateLimitWindowMs;
   const key = deriveRateLimitKey(req);
   const now = Date.now();
   const bucket = rateBuckets.get(key) ?? [];
-  const allowed = applyRateLimitHit(key, now, RATE_LIMIT_PER_WINDOW, RATE_LIMIT_WINDOW_MS);
-  const remaining = Math.max(0, RATE_LIMIT_PER_WINDOW - (rateBuckets.get(key)?.length ?? 0));
+  const allowed = applyRateLimitHit(key, now, perWindow, windowMs);
+  const remaining = Math.max(0, perWindow - (rateBuckets.get(key)?.length ?? 0));
   const resetSeconds = Math.max(
     1,
-    Math.ceil((RATE_LIMIT_WINDOW_MS - (now - (bucket[0] ?? now))) / 1000)
+    Math.ceil((windowMs - (now - (bucket[0] ?? now))) / 1000)
   );
 
-  res.setHeader("RateLimit-Limit", String(RATE_LIMIT_PER_WINDOW));
+  res.setHeader("RateLimit-Limit", String(perWindow));
   res.setHeader("RateLimit-Remaining", String(remaining));
   res.setHeader("RateLimit-Reset", String(resetSeconds));
 
@@ -349,7 +393,7 @@ function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): v
     res.setHeader("Retry-After", String(allowed.retryAfterSeconds));
     res.status(429).json({
       error: "rate_limited",
-      message: `more than ${RATE_LIMIT_PER_WINDOW} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s`,
+      message: `more than ${perWindow} requests per ${windowMs / 1000}s`,
       requestId: (req as AgentPayRequest).id,
     });
     return;
@@ -363,7 +407,7 @@ function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): v
  * header before headers flush, then logs the final structured duration on
  * finish. The header intentionally exposes only the total app duration.
  */
-function _requestTimerMiddleware(req: Request, res: Response, next: NextFunction): void {
+function requestTimerMiddleware(req: Request, res: Response, next: NextFunction): void {
   const startNs = process.hrtime.bigint();
   const originalWriteHead = res.writeHead.bind(res);
   let serverTimingApplied = false;

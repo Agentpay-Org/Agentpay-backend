@@ -1,7 +1,5 @@
 import { trimEventLogToCap } from "../events.js";
 import { Router, type Request, type Response } from "express";
-import { validateBody } from "../middleware/validate.js";
-import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { BULK_MAX_ITEMS_LIMIT, config } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
@@ -9,32 +7,39 @@ const allowedConfigKeys = [
   "rateLimitPerWindow",
   "rateLimitWindowMs",
   "bulkMaxItems",
+  "eventLogCap",
   "usageStoreMaxKeys",
   "servicesStoreMaxKeys",
   "webhookStoreMaxKeys",
   "apiKeyStoreMaxKeys",
-  "eventLogCap",
 ] as const;
 
-type ConfigKey = (typeof allowedConfigKeys)[number];
-
-const configBounds: Record<string, { min: number; max?: number }> = {
-  rateLimitPerWindow: { min: 1 },
-  rateLimitWindowMs: { min: 1 },
-  bulkMaxItems: { min: 1, max: BULK_MAX_ITEMS_LIMIT },
-  usageStoreMaxKeys: { min: 1 },
-  servicesStoreMaxKeys: { min: 1 },
-  webhookStoreMaxKeys: { min: 1 },
-  apiKeyStoreMaxKeys: { min: 1 },
-  eventLogCap: { min: 1, max: 100_000 },
+const configCeilings: Record<string, number> = {
+  bulkMaxItems: BULK_MAX_ITEMS_LIMIT,
+  eventLogCap: 100_000,
 };
 
-function configValidationMessage(key: ConfigKey): string {
-  const bounds = configBounds[key];
-  if (bounds.max !== undefined) {
-    return `${key} must be an integer between ${bounds.min} and ${bounds.max}`;
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Validates one config value, returning an error message when invalid. */
+function validateConfigValue(key: string, value: unknown): string | undefined {
+  const isInteger = typeof value === "number" && Number.isInteger(value);
+  if (key === "bulkMaxItems") {
+    if (!isInteger || value < 1 || value > BULK_MAX_ITEMS_LIMIT) {
+      return `bulkMaxItems must be an integer between 1 and ${BULK_MAX_ITEMS_LIMIT}`;
+    }
+    return undefined;
   }
-  return `${key} must be a positive integer`;
+  if (!isInteger || value < 1) {
+    return `${key} must be a positive integer`;
+  }
+  const ceiling = configCeilings[key];
+  if (ceiling !== undefined && value > ceiling) {
+    return `${key} must be less than or equal to ${ceiling}`;
+  }
+  return undefined;
 }
 
 /**
@@ -47,40 +52,48 @@ export function createConfigRouter(): Router {
     res.json({ config });
   });
 
-  router.patch(
-    "/api/v1/config",
-    validateBody(requestBodySchemas.configPatch),
-    (req: Request, res: Response) => {
-      const updates = req.body ?? {};
-      const requestId = getRequestId(req);
-      for (const k of allowedConfigKeys) {
-        if (k in updates) {
-          const v = updates[k];
-          const bounds = configBounds[k];
-          if (bounds) {
-            if (
-              typeof v !== "number" ||
-              !Number.isInteger(v) ||
-              v < bounds.min ||
-              (bounds.max !== undefined && v > bounds.max)
-            ) {
-              res.status(400).json({
-                error: "invalid_request",
-                message: configValidationMessage(k),
-                requestId,
-              });
-              return;
-            }
-          }
-          config[k] = v;
-        }
-      }
-      if ("eventLogCap" in updates) {
-        trimEventLogToCap();
-      }
-      res.json({ config });
+  router.patch("/api/v1/config", (req: Request, res: Response) => {
+    const requestId = getRequestId(req);
+    const updates = req.body ?? {};
+    if (!isPlainObject(updates)) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: "body must be a JSON object",
+        requestId,
+      });
+      return;
     }
-  );
+
+    const unknownKeys = Object.keys(updates).filter(
+      (key) => !(allowedConfigKeys as readonly string[]).includes(key)
+    );
+    if (unknownKeys.length > 0) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: `unknown config keys: ${unknownKeys.join(", ")}`,
+        unknownKeys,
+        requestId,
+      });
+      return;
+    }
+
+    for (const key of allowedConfigKeys) {
+      if (!(key in updates)) continue;
+      const message = validateConfigValue(key, updates[key]);
+      if (message) {
+        res.status(400).json({ error: "invalid_request", message, requestId });
+        return;
+      }
+    }
+
+    for (const key of allowedConfigKeys) {
+      if (key in updates) config[key] = updates[key] as number;
+    }
+    if ("eventLogCap" in updates) {
+      trimEventLogToCap();
+    }
+    res.json({ config });
+  });
 
   return router;
 }

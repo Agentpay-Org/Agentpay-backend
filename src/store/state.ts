@@ -28,14 +28,37 @@ export const config: Record<string, number> = {
   rateLimitWindowMs: DEFAULT_RATE_LIMIT_WINDOW_MS,
   bulkMaxItems: 100,
   eventLogCap: 10_000,
-  usageStoreMaxKeys: 100_000,
-  servicesStoreMaxKeys: 10_000,
-  webhookStoreMaxKeys: 10_000,
-  apiKeyStoreMaxKeys: 10_000,
 };
 
 /** Read-only snapshot of default config values for admin reset. */
 export const DEFAULT_CONFIG: Record<string, number> = { ...config };
+
+/**
+ * Returns the number of usage keys currently holding a positive (unsettled)
+ * counter. Settled keys retain a zero value but free memory-cap headroom.
+ */
+export function usageNonZeroKeyCount(): number {
+  let count = 0;
+  for (const value of usageStore.values()) {
+    if (value > 0) count += 1;
+  }
+  return count;
+}
+
+/**
+ * Reports whether a store with the given cap can accept a write to `key`.
+ * Existing keys always pass (updates); brand new keys are gated on the cap.
+ * An undefined cap means unbounded.
+ */
+export function hasStoreCapacityFor(
+  currentKeyCount: number,
+  keyAlreadyPresent: boolean,
+  cap: number | undefined
+): boolean {
+  if (keyAlreadyPresent) return true;
+  if (cap === undefined) return true;
+  return currentKeyCount < cap;
+}
 
 /** Opaque API keys keyed by SHA-256 hash, never by the live secret token. */
 export const apiKeyStore = new Map<string, ApiKeyRecord>();

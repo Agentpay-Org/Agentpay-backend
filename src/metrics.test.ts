@@ -79,7 +79,7 @@ void describe("Prometheus HTTP metrics", () => {
       .post("/api/v1/usage")
       .set("Content-Type", "application/json")
       .send("{not-json");
-    assert.strictEqual(bad.status, 500);
+    assert.strictEqual(bad.status, 400);
 
     const metrics = await request(app).get("/api/v1/metrics");
     assert.strictEqual(metrics.status, 200);
@@ -89,7 +89,7 @@ void describe("Prometheus HTTP metrics", () => {
     );
     assert.match(
       metrics.text,
-      /agentpay_http_requests_total\{method="POST",route="unmatched",status="500"\} 1/
+      /agentpay_http_requests_total\{method="POST",route="unmatched",status="400"\} 1/
     );
   });
 });

@@ -2,10 +2,12 @@ import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
 import { isValidServiceId } from "../identifiers.js";
 import { validateBody } from "../middleware/validate.js";
+import { isSafePrice } from "../numericLimits.js";
 import { parseIntParam } from "../queryParams.js";
 import { requestBodySchemas } from "../schemas/requestBodies.js";
 import {
   config,
+  hasStoreCapacityFor,
   parseServiceKey,
   parseUsageKey,
   serviceKey,
@@ -44,6 +46,14 @@ function _rejectInvalidServicePath(
     requestId: getRequestId(req),
   });
   return true;
+}
+
+/** Parses an optional integer query filter, ignoring malformed values. */
+function parseOptionalInteger(value: unknown): number | undefined {
+  if (typeof value !== "string" || value.length === 0) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return undefined;
+  return parsed;
 }
 
 function sendServiceNotFound(req: Request, res: Response, serviceId: string): void {
@@ -149,12 +159,7 @@ export function createServicesRouter(): Router {
     const results = items.map(
       (it: { serviceId?: unknown; priceStroops?: unknown }, i: number) => {
         const { serviceId, priceStroops } = it ?? {};
-        if (
-          !isValidServiceId(serviceId) ||
-          typeof priceStroops !== "number" ||
-          !Number.isInteger(priceStroops) ||
-          priceStroops < 0
-        ) {
+        if (!isValidServiceId(serviceId) || !isSafePrice(priceStroops)) {
           return { index: i, ok: false, error: "invalid_item" };
         }
         if (seenServiceIds.has(serviceId)) {
@@ -170,9 +175,28 @@ export function createServicesRouter(): Router {
   });
 
   router.post("/api/v1/services", (req: Request, res: Response) => {
-    const { serviceId, priceStroops } = req.body ?? {};
+    const body = (req.body ?? {}) as Record<string, unknown>;
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
+
+    const allowedFields = new Set([
+      "serviceId",
+      "priceStroops",
+      "description",
+      "owner",
+    ]);
+    for (const field of Object.keys(body)) {
+      if (!allowedFields.has(field)) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: `unexpected field: ${field}`,
+          requestId,
+        });
+        return;
+      }
+    }
+
+    const { serviceId, priceStroops, description, owner } = body;
     if (
       typeof serviceId !== "string" ||
       serviceId.length === 0 ||
@@ -185,22 +209,58 @@ export function createServicesRouter(): Router {
       });
       return;
     }
-    if (
-      typeof priceStroops !== "number" ||
-      !Number.isInteger(priceStroops) ||
-      priceStroops < 0
-    ) {
+    if (!isSafePrice(priceStroops)) {
       res.status(400).json({
         error: "invalid_request",
-        message: "priceStroops must be a non-negative integer",
+        message: "priceStroops must be a non-negative integer within supported bounds",
         requestId,
       });
       return;
     }
+
+    let metadata: ServiceMetadataDto | undefined;
+    if (description !== undefined || owner !== undefined) {
+      if (typeof description !== "string" || description.length > 256) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: "description must be a string up to 256 chars",
+          requestId,
+        });
+        return;
+      }
+      if (typeof owner !== "string" || owner.length === 0 || owner.length > 256) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: "owner must be a non-empty string up to 256 chars",
+          requestId,
+        });
+        return;
+      }
+      metadata = { description, owner };
+    }
+
     const key = serviceKey(tenantId, serviceId);
     const isNew = !servicesStore.has(key);
+    if (
+      !hasStoreCapacityFor(servicesStore.size, !isNew, config.servicesStoreMaxKeys)
+    ) {
+      res.status(429).json({
+        error: "store_capacity_exceeded",
+        message: "service store capacity exceeded",
+        requestId,
+      });
+      return;
+    }
     servicesStore.set(key, { priceStroops });
-    res.status(isNew ? 201 : 200).json({ serviceId, priceStroops });
+    if (metadata) {
+      servicesMetadata.set(key, metadata);
+    }
+    const response: Record<string, unknown> = { serviceId, priceStroops };
+    if (metadata) {
+      response.description = metadata.description;
+      response.owner = metadata.owner;
+    }
+    res.status(isNew ? 201 : 200).json(response);
   });
 
   router.get("/api/v1/services/:serviceId/usage", (req: Request, res: Response) => {
@@ -209,6 +269,7 @@ export function createServicesRouter(): Router {
     let total = 0;
     let agents = 0;
     for (const [key, value] of usageStore.entries()) {
+      if (value <= 0) continue;
       const parsed = parseUsageKey(key);
       if (parsed.tenantId === tenantId && parsed.serviceId === serviceId) {
         total += value;
@@ -223,18 +284,24 @@ export function createServicesRouter(): Router {
     (req: Request, res: Response) => {
       const serviceId = String(req.params.serviceId);
       const tenantId = resolveTenantId(req);
-      const limit = Math.min(
-        100,
-        Math.max(1, Number((req.query.limit as string) ?? 10))
-      );
+      const limit = parseIntParam(req.query.limit, {
+        defaultValue: 10,
+        min: 1,
+        max: 100,
+      });
       const items: { agent: string; total: number }[] = [];
       for (const [key, total] of usageStore.entries()) {
+        if (total <= 0) continue;
         const parsed = parseUsageKey(key);
         if (parsed.tenantId === tenantId && parsed.serviceId === serviceId) {
           items.push({ agent: parsed.agent, total });
         }
       }
-      items.sort((a, b) => b.total - a.total);
+      items.sort(
+        (a, b) =>
+          b.total - a.total ||
+          (a.agent < b.agent ? -1 : a.agent > b.agent ? 1 : 0)
+      );
       res.json({ serviceId, items: items.slice(0, limit) });
     }
   );
@@ -244,6 +311,7 @@ export function createServicesRouter(): Router {
     const tenantId = resolveTenantId(req);
     const items: { agent: string; total: number }[] = [];
     for (const [key, total] of usageStore.entries()) {
+      if (total <= 0) continue;
       const parsed = parseUsageKey(key);
       if (parsed.tenantId === tenantId && parsed.serviceId === serviceId) {
         items.push({ agent: parsed.agent, total });
@@ -256,6 +324,14 @@ export function createServicesRouter(): Router {
   router.get("/api/v1/services/:serviceId", (req: Request, res: Response) => {
     const serviceId = String(req.params.serviceId);
     const tenantId = resolveTenantId(req);
+    if (!isValidServiceId(serviceId)) {
+      res.status(400).json({
+        error: "invalid_request",
+        message: invalidServiceIdMessage(),
+        requestId: getRequestId(req),
+      });
+      return;
+    }
     const meta = servicesStore.get(serviceKey(tenantId, serviceId));
     if (!meta) {
       sendServiceNotFound(req, res, serviceId);
@@ -397,14 +473,10 @@ export function createServicesRouter(): Router {
       return;
     }
     const { priceStroops } = req.body ?? {};
-    if (
-      typeof priceStroops !== "number" ||
-      !Number.isInteger(priceStroops) ||
-      priceStroops < 0
-    ) {
+    if (!isSafePrice(priceStroops)) {
       res.status(400).json({
         error: "invalid_request",
-        message: "priceStroops must be a non-negative integer",
+        message: "priceStroops must be a non-negative integer within supported bounds",
         requestId,
       });
       return;
@@ -429,6 +501,7 @@ export function createServicesRouter(): Router {
     servicesStore.delete(key);
     servicesDisabled.delete(key);
     servicesMetadata.delete(key);
+    recordEvent("service.deleted", { serviceId });
     res.status(204).send();
   });
 
@@ -444,6 +517,14 @@ export function createServicesRouter(): Router {
       min: 1,
       max: 1000,
     });
+    const disabledFilter =
+      req.query.disabled === "true"
+        ? true
+        : req.query.disabled === "false"
+          ? false
+          : undefined;
+    const minPrice = parseOptionalInteger(req.query.minPrice);
+    const maxPrice = parseOptionalInteger(req.query.maxPrice);
     const services: ServiceReadShape[] = [];
     for (const [key, meta] of servicesStore.entries()) {
       const parsed = parseServiceKey(key);
@@ -451,6 +532,10 @@ export function createServicesRouter(): Router {
       const { serviceId } = parsed;
       if (prefix && !serviceId.startsWith(prefix)) continue;
       if (q && !serviceId.toLowerCase().includes(q)) continue;
+      const isDisabled = servicesDisabled.has(key);
+      if (disabledFilter !== undefined && isDisabled !== disabledFilter) continue;
+      if (minPrice !== undefined && meta.priceStroops < minPrice) continue;
+      if (maxPrice !== undefined && meta.priceStroops > maxPrice) continue;
       services.push(serviceReadShape(tenantId, serviceId, meta));
       if (services.length >= limit) break;
     }

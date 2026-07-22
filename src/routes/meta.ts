@@ -155,10 +155,36 @@ export function createMetaRouter(): Router {
             requestBody: jsonRequestBodyRef("bulkUsage"),
           },
         },
+        "/api/v1/usage/export.json": { get: { summary: "Export usage as JSON" } },
+        "/api/v1/usage/export.csv": { get: { summary: "Export usage as CSV" } },
+        "/api/v1/usage/{agent}/{serviceId}": {
+          get: { summary: "Read an agent/service usage total" },
+          delete: { summary: "Reset an agent/service usage counter" },
+        },
+        "/api/v1/services/{serviceId}/disable": {
+          post: { summary: "Disable a service" },
+        },
+        "/api/v1/services/{serviceId}/enable": {
+          post: { summary: "Enable a service" },
+        },
+        "/api/v1/billing/total": { get: { summary: "Aggregate billing totals" } },
+        "/api/v1/billing/{agent}/{serviceId}": {
+          get: { summary: "Quote billing for an agent/service pair" },
+        },
+        "/api/v1/agents": { get: { summary: "List agents with usage" } },
+        "/api/v1/agents/{agent}/total": {
+          get: { summary: "Total outstanding usage for an agent" },
+        },
+        "/api/v1/agents/{agent}/usage": {
+          get: { summary: "Per-service usage for an agent" },
+        },
         "/api/v1/settle": {
           post: {
             summary: "Drain & quote bill",
           },
+        },
+        "/api/v1/settle/bulk": {
+          post: { summary: "Drain all services for one agent" },
         },
         "/api/v1/api-keys": {
           get: { summary: "List api keys" },
@@ -192,7 +218,33 @@ export function createMetaRouter(): Router {
         "/api/v1/admin/reset": { post: { summary: "Clear all in-memory state" } },
       },
       components: {
-        schemas: openApiRequestBodyComponents as Record<string, unknown>,
+        schemas: {
+          ...(openApiRequestBodyComponents as Record<string, unknown>),
+          BillingQuote: {
+            type: "object",
+            properties: {
+              agent: { type: "string" },
+              serviceId: { type: "string" },
+              requests: { type: "integer" },
+              priceStroops: { type: "integer" },
+              billedStroops: {
+                type: "string",
+                description: "Exact billed amount in stroops as a decimal string.",
+              },
+            },
+          },
+          BillingTotal: {
+            type: "object",
+            properties: {
+              totalStroops: {
+                type: "string",
+                description: "Aggregate billed amount in stroops as a decimal string.",
+              },
+              disabledStroops: { type: "string" },
+              unpricedRequests: { type: "integer" },
+            },
+          },
+        },
       },
     });
   });

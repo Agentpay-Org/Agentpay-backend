@@ -11,6 +11,7 @@ import {
   servicesDisabled,
   servicesMetadata,
   servicesStore,
+  usageKey,
   usageStore,
   webhookStore,
 } from "./store/state.js";
@@ -177,9 +178,11 @@ void describe("usage rollups and exports", () => {
   void it("escapes CSV exports and includes every tuple in JSON exports", async () => {
     const app = createApp();
 
-    await recordUsage(app, "agent,comma", 'svc "quote"', 2);
-    await recordUsage(app, "agent\nline", "svc-newline", 3);
-    await recordUsage(app, "agent-plain", "svc-plain", 4);
+    // CSV-dangerous identifiers are rejected by the write API's identifier
+    // validation, so seed the store directly to exercise export escaping.
+    usageStore.set(usageKey("agent,comma", 'svc "quote"'), 2);
+    usageStore.set(usageKey("agent\nline", "svc-newline"), 3);
+    usageStore.set(usageKey("agent-plain", "svc-plain"), 4);
 
     const csv = await request(app).get("/api/v1/usage/export.csv");
     assert.strictEqual(csv.status, 200);

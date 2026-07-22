@@ -58,8 +58,13 @@ void describe("stats and prometheus metrics", () => {
     assert.deepStrictEqual(stats.body, {
       totalServices: 0,
       totalApiKeys: 0,
+      totalWebhooks: 0,
+      usageKeys: 0,
       totalRequests: 0,
+      lifetimeRequests: 0,
       uniqueAgents: 0,
+      settledStroopsTotal: "0",
+      settlementsTotal: 0,
       paused: false,
     });
   });

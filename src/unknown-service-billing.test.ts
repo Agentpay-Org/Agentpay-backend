@@ -27,7 +27,7 @@ void describe("billing and settlement for unknown services", () => {
     assert.strictEqual(res.body.billedStroops, undefined);
   });
 
-  void it("does not drain usage when settling an unknown service", async () => {
+  void it("settles an unknown service at a zero price and drains its usage", async () => {
     const app = createApp();
     const key = usageKey("agent-unknown-settle", "svc-missing");
     usageStore.set(key, 13);
@@ -36,13 +36,12 @@ void describe("billing and settlement for unknown services", () => {
       .post("/api/v1/settle")
       .send({ agent: "agent-unknown-settle", serviceId: "svc-missing" });
 
-    assert.strictEqual(res.status, 404);
-    assert.strictEqual(res.body.error, "not_found");
-    const message: unknown = res.body.message;
-    if (typeof message !== "string") throw new Error("expected string message");
-    assert.match(message, /svc-missing/);
-    assert.ok(res.body.requestId);
-    assert.strictEqual(usageStore.get(key), 13);
+    // Settlement mirrors POST /api/v1/settle/bulk: unregistered services price
+    // at zero and drain, rather than 404-ing and stranding the counter.
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.priceStroops, 0);
+    assert.strictEqual(res.body.billedStroops, 0);
+    assert.strictEqual(usageStore.get(key), 0);
   });
 
   void it("keeps registered zero-price service billing and settlement successful", async () => {

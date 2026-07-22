@@ -73,8 +73,8 @@ void describe("global error handling", () => {
       .set("Content-Type", "application/json")
       .send('{"agent":');
 
-    assert.strictEqual(response.status, 500);
-    assertStructuredError(response.body as ErrorBody, "internal_error");
+    assert.strictEqual(response.status, 400);
+    assertStructuredError(response.body as ErrorBody, "invalid_request");
   });
 
   for (const method of ["get", "post"] as const) {
