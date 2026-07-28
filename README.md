@@ -127,6 +127,8 @@ files are ignored by Docker builds and must not be baked into image layers.
 - [Billing units and settlement semantics](docs/billing-units.md) explains
   stroops, `priceStroops`, `billedStroops`, `/api/v1/billing/*`, and why
   `POST /api/v1/settle` drains backend counters without moving funds.
+- [Config API](docs/config.md) documents `GET /api/v1/config` and
+  `PATCH /api/v1/config`, including request/response shapes and error codes.
 - [Idempotency keys](docs/idempotency.md) documents retry-safe billing writes
   for `POST /api/v1/usage`, `POST /api/v1/usage/bulk`, and
   `POST /api/v1/settle`.
