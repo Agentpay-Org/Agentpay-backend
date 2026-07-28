@@ -66,6 +66,9 @@ void describe("stats and prometheus metrics", () => {
       settledStroopsTotal: "0",
       settlementsTotal: 0,
       paused: false,
+      servicesBreakdown: [],
+      servicesBreakdownTotal: 0,
+      nextServicesBreakdownCursor: null,
     });
   });
 
