@@ -9,6 +9,7 @@ import { isReady } from "../readiness.js";
 import { rejectUnknownQueryParams } from "../middleware/validate.js";
 import { parseIntParam } from "../queryParams.js";
 import { getRequestId } from "../types.js";
+import { paginateByCursor } from "../cursorPagination.js";
 
 const DEFAULT_HEALTH_CHECKS_LIMIT = 10;
 const MAX_HEALTH_CHECKS_LIMIT = 50;
@@ -59,20 +60,6 @@ function buildHealthChecks(): HealthCheck[] {
   ];
 }
 
-function encodeHealthChecksCursor(name: string): string {
-  return Buffer.from(name).toString("base64url");
-}
-
-function decodeHealthChecksCursor(raw: string): string | null {
-  let decoded: string;
-  try {
-    decoded = Buffer.from(raw, "base64url").toString("utf8");
-  } catch {
-    return null;
-  }
-  return decoded.length > 0 ? decoded : null;
-}
-
 /** Reports whether this process should receive fresh traffic. */
 export function handleReadiness(_req: Request, res: Response): void {
   const ready = isReady();
@@ -103,34 +90,18 @@ export function createMetaRouter(): Router {
       const cursorRaw =
         typeof req.query.cursor === "string" ? req.query.cursor : undefined;
 
-      let startIndex = 0;
-      if (cursorRaw !== undefined) {
-        const decodedName = decodeHealthChecksCursor(cursorRaw);
-        if (decodedName === null) {
-          res.status(400).json({
-            error: "invalid_request",
-            message: "cursor is malformed",
-            requestId: getRequestId(req),
-          });
-          return;
-        }
-        const index = allChecks.findIndex((check) => check.name === decodedName);
-        if (index === -1) {
-          res.status(400).json({
-            error: "invalid_request",
-            message: "cursor is invalid or expired",
-            requestId: getRequestId(req),
-          });
-          return;
-        }
-        startIndex = index + 1;
+      const paged = paginateByCursor(allChecks, cursorRaw, limit, (check) => check.name);
+      if (!paged.ok) {
+        res.status(400).json({
+          error: "invalid_request",
+          message:
+            paged.reason === "malformed"
+              ? "cursor is malformed"
+              : "cursor is invalid or expired",
+          requestId: getRequestId(req),
+        });
+        return;
       }
-
-      const page = allChecks.slice(startIndex, startIndex + limit);
-      const nextCursor =
-        startIndex + page.length < allChecks.length
-          ? encodeHealthChecksCursor(page[page.length - 1].name)
-          : null;
 
       res.json({
         status: pauseState.paused ? "paused" : "ok",
@@ -141,9 +112,9 @@ export function createMetaRouter(): Router {
         },
         pid: process.pid,
         node: process.version,
-        checks: page,
+        checks: paged.page,
         checksTotal: allChecks.length,
-        nextChecksCursor: nextCursor,
+        nextChecksCursor: paged.nextCursor,
       });
     }
   );
