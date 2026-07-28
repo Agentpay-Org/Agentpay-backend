@@ -3,8 +3,75 @@ import {
   jsonRequestBodyRef,
   openApiRequestBodyComponents,
 } from "../schemas/requestBodies.js";
-import { pauseState } from "../store/state.js";
+import { apiKeyStore, config, pauseState, servicesStore, usageStore, webhookStore } from "../store/state.js";
+import { eventLog } from "../events.js";
 import { isReady } from "../readiness.js";
+import { rejectUnknownQueryParams } from "../middleware/validate.js";
+import { parseIntParam } from "../queryParams.js";
+import { getRequestId } from "../types.js";
+
+const DEFAULT_HEALTH_CHECKS_LIMIT = 10;
+const MAX_HEALTH_CHECKS_LIMIT = 50;
+
+type HealthCheck = {
+  name: string;
+  status: "ok" | "warn";
+  detail: Record<string, unknown>;
+};
+
+/** Builds the fixed, ordered list of subsystem health checks. */
+function buildHealthChecks(): HealthCheck[] {
+  const mem = process.memoryUsage();
+  return [
+    {
+      name: "eventLog",
+      status: eventLog.length < config.eventLogCap ? "ok" : "warn",
+      detail: { size: eventLog.length, cap: config.eventLogCap },
+    },
+    {
+      name: "usageStore",
+      status: usageStore.size < config.usageStoreMaxKeys ? "ok" : "warn",
+      detail: { size: usageStore.size, cap: config.usageStoreMaxKeys },
+    },
+    {
+      name: "servicesStore",
+      status: servicesStore.size < config.servicesStoreMaxKeys ? "ok" : "warn",
+      detail: { size: servicesStore.size, cap: config.servicesStoreMaxKeys },
+    },
+    {
+      name: "webhookStore",
+      status: webhookStore.size < config.webhookStoreMaxKeys ? "ok" : "warn",
+      detail: { size: webhookStore.size, cap: config.webhookStoreMaxKeys },
+    },
+    {
+      name: "apiKeyStore",
+      status: apiKeyStore.size < config.apiKeyStoreMaxKeys ? "ok" : "warn",
+      detail: { size: apiKeyStore.size, cap: config.apiKeyStoreMaxKeys },
+    },
+    {
+      name: "memory",
+      detail: {
+        rssMb: Math.round(mem.rss / 1024 / 1024),
+        heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
+      },
+      status: "ok",
+    },
+  ];
+}
+
+function encodeHealthChecksCursor(name: string): string {
+  return Buffer.from(name).toString("base64url");
+}
+
+function decodeHealthChecksCursor(raw: string): string | null {
+  let decoded: string;
+  try {
+    decoded = Buffer.from(raw, "base64url").toString("utf8");
+  } catch {
+    return null;
+  }
+  return decoded.length > 0 ? decoded : null;
+}
 
 /** Reports whether this process should receive fresh traffic. */
 export function handleReadiness(_req: Request, res: Response): void {
@@ -18,25 +85,70 @@ export function handleReadiness(_req: Request, res: Response): void {
 export function createMetaRouter(): Router {
   const router = Router();
 
-  router.get("/health", (_req, res: Response) => {
+  router.get("/health", rejectUnknownQueryParams([]), (_req, res: Response) => {
     res.json({ status: "ok", service: "agentpay-backend" });
   });
 
-  router.get("/api/v1/health/deep", (_req, res: Response) => {
-    const mem = process.memoryUsage();
-    res.json({
-      status: pauseState.paused ? "paused" : "ok",
-      uptimeSeconds: Math.round(process.uptime()),
-      memory: {
-        rssMb: Math.round(mem.rss / 1024 / 1024),
-        heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
-      },
-      pid: process.pid,
-      node: process.version,
-    });
-  });
+  router.get(
+    "/api/v1/health/deep",
+    rejectUnknownQueryParams(["limit", "cursor"]),
+    (req: Request, res: Response) => {
+      const mem = process.memoryUsage();
+      const allChecks = buildHealthChecks();
+      const limit = parseIntParam(req.query.limit, {
+        defaultValue: DEFAULT_HEALTH_CHECKS_LIMIT,
+        min: 1,
+        max: MAX_HEALTH_CHECKS_LIMIT,
+      });
+      const cursorRaw =
+        typeof req.query.cursor === "string" ? req.query.cursor : undefined;
 
-  router.get("/api/v1/health/ready", handleReadiness);
+      let startIndex = 0;
+      if (cursorRaw !== undefined) {
+        const decodedName = decodeHealthChecksCursor(cursorRaw);
+        if (decodedName === null) {
+          res.status(400).json({
+            error: "invalid_request",
+            message: "cursor is malformed",
+            requestId: getRequestId(req),
+          });
+          return;
+        }
+        const index = allChecks.findIndex((check) => check.name === decodedName);
+        if (index === -1) {
+          res.status(400).json({
+            error: "invalid_request",
+            message: "cursor is invalid or expired",
+            requestId: getRequestId(req),
+          });
+          return;
+        }
+        startIndex = index + 1;
+      }
+
+      const page = allChecks.slice(startIndex, startIndex + limit);
+      const nextCursor =
+        startIndex + page.length < allChecks.length
+          ? encodeHealthChecksCursor(page[page.length - 1].name)
+          : null;
+
+      res.json({
+        status: pauseState.paused ? "paused" : "ok",
+        uptimeSeconds: Math.round(process.uptime()),
+        memory: {
+          rssMb: Math.round(mem.rss / 1024 / 1024),
+          heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
+        },
+        pid: process.pid,
+        node: process.version,
+        checks: page,
+        checksTotal: allChecks.length,
+        nextChecksCursor: nextCursor,
+      });
+    }
+  );
+
+  router.get("/api/v1/health/ready", rejectUnknownQueryParams([]), handleReadiness);
 
   router.get("/api/v1/version", (_req, res: Response) => {
     res.json({ version: "1.0.0" });
