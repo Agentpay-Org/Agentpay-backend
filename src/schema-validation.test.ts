@@ -50,9 +50,18 @@ const schemaExamples: {
   },
   {
     name: "configPatch",
-    valid: { rateLimitPerWindow: 10, rateLimitWindowMs: 1000, bulkMaxItems: 25 },
+    valid: {
+      rateLimitPerWindow: 10,
+      rateLimitWindowMs: 1000,
+      bulkMaxItems: 25,
+      eventLogCap: 500,
+      usageStoreMaxKeys: 1_000,
+      servicesStoreMaxKeys: 500,
+      webhookStoreMaxKeys: 500,
+      apiKeyStoreMaxKeys: 500,
+    },
     invalid: { rateLimitPerWindow: 0 },
-    invalidMessage: /rateLimitPerWindow must be a positive integer/,
+    invalidMessage: /rateLimitPerWindow must be an integer between 1 and 1000000/,
   },
   {
     name: "serviceCreate",

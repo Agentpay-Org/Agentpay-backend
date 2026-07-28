@@ -15,8 +15,14 @@ const allowedConfigKeys = [
 ] as const;
 
 const configCeilings: Record<string, number> = {
+  rateLimitPerWindow: 1_000_000,
+  rateLimitWindowMs: 86_400_000,
   bulkMaxItems: BULK_MAX_ITEMS_LIMIT,
   eventLogCap: 100_000,
+  usageStoreMaxKeys: 100_000,
+  servicesStoreMaxKeys: 10_000,
+  webhookStoreMaxKeys: 10_000,
+  apiKeyStoreMaxKeys: 10_000,
 };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -32,12 +38,11 @@ function validateConfigValue(key: string, value: unknown): string | undefined {
     }
     return undefined;
   }
-  if (!isInteger || value < 1) {
-    return `${key} must be a positive integer`;
-  }
   const ceiling = configCeilings[key];
-  if (ceiling !== undefined && value > ceiling) {
-    return `${key} must be less than or equal to ${ceiling}`;
+  if (!isInteger || value < 1 || (ceiling !== undefined && value > ceiling)) {
+    return ceiling !== undefined
+      ? `${key} must be an integer between 1 and ${ceiling}`
+      : `${key} must be a positive integer`;
   }
   return undefined;
 }

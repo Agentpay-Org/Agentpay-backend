@@ -10,6 +10,10 @@ const defaultConfig = {
   rateLimitWindowMs: 60_000,
   bulkMaxItems: 100,
   eventLogCap: 10_000,
+  usageStoreMaxKeys: 100_000,
+  servicesStoreMaxKeys: 10_000,
+  webhookStoreMaxKeys: 10_000,
+  apiKeyStoreMaxKeys: 10_000,
 };
 
 beforeEach(() => {
@@ -73,7 +77,10 @@ void describe("config patch route", () => {
 
     assert.strictEqual(res.status, 400);
     assert.strictEqual(res.body.error, "invalid_request");
-    assert.strictEqual(res.body.message, "eventLogCap must be a positive integer");
+    assert.strictEqual(
+      res.body.message,
+      "eventLogCap must be an integer between 1 and 100000"
+    );
     assert.strictEqual(config.eventLogCap, 10_000);
   });
 
@@ -86,10 +93,7 @@ void describe("config patch route", () => {
 
     assert.strictEqual(res.status, 400);
     assert.strictEqual(res.body.error, "invalid_request");
-    assert.strictEqual(
-      res.body.message,
-      "eventLogCap must be less than or equal to 100000"
-    );
+    assert.strictEqual(res.body.message, "eventLogCap must be an integer between 1 and 100000");
     assert.strictEqual(config.eventLogCap, 10_000);
   });
 
@@ -101,6 +105,10 @@ void describe("config patch route", () => {
       rateLimitWindowMs: 30_000,
       bulkMaxItems: 50,
       eventLogCap: 500,
+      usageStoreMaxKeys: 1_000,
+      servicesStoreMaxKeys: 750,
+      webhookStoreMaxKeys: 650,
+      apiKeyStoreMaxKeys: 550,
     });
 
     assert.strictEqual(res.status, 200);
@@ -109,6 +117,39 @@ void describe("config patch route", () => {
       rateLimitWindowMs: 30_000,
       bulkMaxItems: 50,
       eventLogCap: 500,
+      usageStoreMaxKeys: 1_000,
+      servicesStoreMaxKeys: 750,
+      webhookStoreMaxKeys: 650,
+      apiKeyStoreMaxKeys: 550,
+    });
+  });
+
+  void it("accepts the bounded store cap fields and rejects over-limit values", async () => {
+    const app = createApp();
+
+    const patched = await request(app).patch("/api/v1/config").send({
+      usageStoreMaxKeys: 99_999,
+      servicesStoreMaxKeys: 9_999,
+      webhookStoreMaxKeys: 9_999,
+      apiKeyStoreMaxKeys: 9_999,
+    });
+
+    assert.strictEqual(patched.status, 200);
+    assert.strictEqual(patched.body.config.usageStoreMaxKeys, 99_999);
+    assert.strictEqual(patched.body.config.servicesStoreMaxKeys, 9_999);
+    assert.strictEqual(patched.body.config.webhookStoreMaxKeys, 9_999);
+    assert.strictEqual(patched.body.config.apiKeyStoreMaxKeys, 9_999);
+
+    const rejected = await request(app)
+      .patch("/api/v1/config")
+      .set("X-Request-Id", "config-too-high")
+      .send({ apiKeyStoreMaxKeys: 10_001 });
+
+    assert.strictEqual(rejected.status, 400);
+    assert.deepStrictEqual(rejected.body, {
+      error: "invalid_request",
+      message: "apiKeyStoreMaxKeys must be an integer between 1 and 10000",
+      requestId: "config-too-high",
     });
   });
 });
