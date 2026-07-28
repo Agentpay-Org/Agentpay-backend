@@ -1,12 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
-import { validateBody } from "../middleware/validate.js";
-import { applyOffsetPage } from "../listPagination.js";
+import { paginateByCursor } from "../cursorPagination.js";
+import { rejectUnknownQueryParams, validateBody } from "../middleware/validate.js";
+import { parseIntParam } from "../queryParams.js";
 import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { config, hasStoreCapacityFor, webhookStore } from "../store/state.js";
 import { getRequestId } from "../types.js";
 import { KNOWN_EVENT_TYPES } from "../events.js";
+
+const DEFAULT_WEBHOOKS_LIMIT = 50;
+const MAX_WEBHOOKS_LIMIT = 500;
+
+type WebhookListItem = {
+  id: string;
+  url: string;
+  events: string[];
+  createdAt: number;
+};
 
 export type WebhookValidationResult<T> = 
   { ok: true; value: T } | { ok: false; message: string };
@@ -43,6 +54,45 @@ export function validateWebhookEvents(
 export function createWebhooksRouter(): Router {
   const router = Router();
 
+  router.get(
+    "/api/v1/webhooks",
+    rejectUnknownQueryParams(["limit", "cursor"]),
+    (req: Request, res: Response) => {
+      const allItems = Array.from(webhookStore.entries())
+        .sort(([idA, metaA], [idB, metaB]) =>
+          metaA.createdAt - metaB.createdAt || idA.localeCompare(idB)
+        )
+        .map(([id, meta]) => ({ id, ...meta })) as WebhookListItem[];
+      const limit = parseIntParam(req.query.limit, {
+        defaultValue: DEFAULT_WEBHOOKS_LIMIT,
+        min: 1,
+        max: MAX_WEBHOOKS_LIMIT,
+      });
+      const cursorRaw =
+        typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+      const paged = paginateByCursor(allItems, cursorRaw, limit, (item) =>
+        `${item.createdAt}:${item.id}`
+      );
+      if (!paged.ok) {
+        res.status(400).json({
+          error: "invalid_request",
+          message:
+            paged.reason === "malformed"
+              ? "cursor is malformed"
+              : "cursor is invalid or expired",
+          requestId: getRequestId(req),
+        });
+        return;
+      }
+
+      res.json({
+        items: paged.page,
+        total: allItems.length,
+        nextCursor: paged.nextCursor,
+      });
+    }
+  );
+
   router.delete("/api/v1/webhooks/:id", (req: Request, res: Response) => {
     const id = String(req.params.id);
     if (!webhookStore.has(id)) {
@@ -55,16 +105,6 @@ export function createWebhooksRouter(): Router {
     }
     webhookStore.delete(id);
     res.status(204).send();
-  });
-
-  router.get("/api/v1/webhooks", (req: Request, res: Response) => {
-    const allItems = Array.from(webhookStore.entries())
-      .sort(([idA, metaA], [idB, metaB]) =>
-        metaA.createdAt - metaB.createdAt || idA.localeCompare(idB)
-      )
-      .map(([id, meta]) => ({ id, ...meta }));
-    const { items, total } = applyOffsetPage(allItems, req.query);
-    res.json({ items, total });
   });
 
   /**
