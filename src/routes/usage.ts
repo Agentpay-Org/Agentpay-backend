@@ -33,6 +33,10 @@ type BulkUsageBody = {
   items: { agent: string; serviceId: string; requests: number }[];
 };
 
+export type AgentValidationResult =
+  | { ok: true; value: string }
+  | { ok: false; message: string };
+
 /**
  * Neutralises CSV formula-injection characters by prefixing with a single
  * quote. Follows the OWASP CSV injection guidance.
@@ -65,6 +69,13 @@ export function escapeCsvField(value: string): string {
 function invalidIdentifierMessage(kind: "agent" | "serviceId"): string {
   const max = kind === "agent" ? 256 : 128;
   return `${kind} must be 1-${max} chars using only letters, numbers, dot, underscore, or hyphen`;
+}
+
+export function validateAgentRequest(agent: unknown): AgentValidationResult {
+  if (!isValidAgentId(agent)) {
+    return { ok: false, message: "agent must be a safe identifier" };
+  }
+  return { ok: true, value: agent };
 }
 
 export interface UsageRouterOptions {
@@ -118,11 +129,12 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
     const { agent, serviceId, requests } = req.body ?? {};
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
+    const agentValidation = validateAgentRequest(agent);
 
-    if (!isValidAgentId(agent)) {
+    if (!agentValidation.ok) {
       res.status(400).json({
         error: "invalid_request",
-        message: invalidIdentifierMessage("agent"),
+        message: agentValidation.message,
         requestId,
       });
       return;
@@ -153,7 +165,7 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
       return;
     }
 
-    const key = usageKey(tenantId, agent, serviceId);
+    const key = usageKey(tenantId, agentValidation.value, serviceId);
     if (
       !hasStoreCapacityFor(
         usageNonZeroKeyCount(),
@@ -173,8 +185,13 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
     usageStore.set(key, total);
     addLifetimeRequests(requests);
 
-    recordEvent("usage.recorded", { agent, serviceId, requests, total });
-    res.status(201).json({ agent, serviceId, total });
+    recordEvent("usage.recorded", {
+      agent: agentValidation.value,
+      serviceId,
+      requests,
+      total,
+    });
+    res.status(201).json({ agent: agentValidation.value, serviceId, total });
   });
 
   /**
@@ -201,9 +218,10 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
       const results: BulkUsageResult[] = [];
       for (let i = 0; i < items.length; i++) {
         const { agent, serviceId, requests } = items[i] ?? {};
+        const agentValidation = validateAgentRequest(agent);
 
         if (
-          !isValidAgentId(agent) ||
+          !agentValidation.ok ||
           !isValidServiceId(serviceId) ||
           !isSafeCount(requests)
         ) {
@@ -214,7 +232,7 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
           results.push({ index: i, ok: false, error: "service_disabled" });
           continue;
         }
-        const key = usageKey(tenantId, agent, serviceId);
+        const key = usageKey(tenantId, agentValidation.value, serviceId);
         if (
           !hasStoreCapacityFor(
             usageNonZeroKeyCount(),
@@ -232,7 +250,7 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
         usageStore.set(key, total);
         addLifetimeRequests(requests);
         recordEvent("usage.recorded", {
-          agent,
+          agent: agentValidation.value,
           serviceId,
           requests,
           total,
@@ -248,11 +266,12 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
   router.post("/api/v1/settle", idempotency, (req: Request, res: Response) => {
     const { agent, serviceId } = req.body ?? {};
     const tenantId = resolveTenantId(req);
-    if (!isValidAgentId(agent) || !isValidServiceId(serviceId)) {
+    const agentValidation = validateAgentRequest(agent);
+    if (!agentValidation.ok || !isValidServiceId(serviceId)) {
       invalidIdentifiers(req, res);
       return;
     }
-    const key = usageKey(tenantId, agent, serviceId);
+    const key = usageKey(tenantId, agentValidation.value, serviceId);
     const requests = usageStore.get(key) ?? 0;
     const price = servicesStore.get(serviceKey(tenantId, serviceId))?.priceStroops ?? 0;
     const stroops = BigInt(requests) * BigInt(price);
@@ -260,8 +279,19 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
     settlementCounters.settledStroopsTotal += Number(stroops);
     settlementCounters.settlementsTotal += 1;
     const billedStroops = formatStroops(stroops);
-    recordEvent("usage.settled", { agent, serviceId, requests, billedStroops });
-    res.json({ agent, serviceId, requests, priceStroops: price, billedStroops });
+    recordEvent("usage.settled", {
+      agent: agentValidation.value,
+      serviceId,
+      requests,
+      billedStroops,
+    });
+    res.json({
+      agent: agentValidation.value,
+      serviceId,
+      requests,
+      priceStroops: price,
+      billedStroops,
+    });
   });
 
   /**
@@ -272,27 +302,30 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
     const { agent } = req.body ?? {};
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
-    if (!isValidAgentId(agent)) {
+    const agentValidation = validateAgentRequest(agent);
+    if (!agentValidation.ok) {
       res.status(400).json({
         error: "invalid_request",
-        message: "agent must be a safe identifier",
+        message: agentValidation.message,
         requestId,
       });
       return;
     }
-    const entries = tenantUsageEntries(tenantId).filter((e) => e.agent === agent);
+    const entries = tenantUsageEntries(tenantId).filter(
+      (e) => e.agent === agentValidation.value
+    );
     let totalBilled = 0n;
     const items = entries.map((entry) => {
       const service = servicesStore.get(serviceKey(tenantId, entry.serviceId));
       const price = service?.priceStroops ?? 0;
       const stroops = BigInt(entry.total) * BigInt(price);
       totalBilled += stroops;
-      usageStore.set(usageKey(tenantId, agent, entry.serviceId), 0);
+      usageStore.set(usageKey(tenantId, agentValidation.value, entry.serviceId), 0);
       settlementCounters.settledStroopsTotal += Number(stroops);
       settlementCounters.settlementsTotal += 1;
       const billedStroops = formatStroops(stroops);
       recordEvent("usage.settled", {
-        agent,
+        agent: agentValidation.value,
         serviceId: entry.serviceId,
         requests: entry.total,
         billedStroops,
@@ -305,7 +338,11 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
         billedStroops,
       };
     });
-    res.json({ agent, items, totalBilledStroops: formatStroops(totalBilled) });
+    res.json({
+      agent: agentValidation.value,
+      items,
+      totalBilledStroops: formatStroops(totalBilled),
+    });
   });
 
   router.get("/api/v1/usage/export.json", (req: Request, res: Response) => {
@@ -354,7 +391,8 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
     const serviceId = String(req.params.serviceId);
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
-    if (!isValidAgentId(agent) || !isValidServiceId(serviceId)) {
+    const agentValidation = validateAgentRequest(agent);
+    if (!agentValidation.ok || !isValidServiceId(serviceId)) {
       invalidIdentifiers(req, res);
       return;
     }
@@ -367,10 +405,10 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
       });
       return;
     }
-    const requests = usageStore.get(usageKey(tenantId, agent, serviceId)) ?? 0;
+    const requests = usageStore.get(usageKey(tenantId, agentValidation.value, serviceId)) ?? 0;
     const stroops = BigInt(requests) * BigInt(service.priceStroops);
     res.json({
-      agent,
+      agent: agentValidation.value,
       serviceId,
       requests,
       priceStroops: service.priceStroops,
@@ -399,40 +437,44 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
   router.get("/api/v1/agents/:agent/total", (req: Request, res: Response) => {
     const agent = String(req.params.agent);
     const tenantId = resolveTenantId(req);
-    if (!isValidAgentId(agent)) {
+    const agentValidation = validateAgentRequest(agent);
+    if (!agentValidation.ok) {
       invalidIdentifiers(req, res);
       return;
     }
     let total = 0;
     for (const entry of tenantUsageEntries(tenantId)) {
-      if (entry.agent === agent) total += entry.total;
+      if (entry.agent === agentValidation.value) total += entry.total;
     }
-    res.json({ agent, total });
+    res.json({ agent: agentValidation.value, total });
   });
 
   router.get("/api/v1/agents/:agent/usage", (req: Request, res: Response) => {
     const agent = String(req.params.agent);
     const tenantId = resolveTenantId(req);
-    if (!isValidAgentId(agent)) {
+    const agentValidation = validateAgentRequest(agent);
+    if (!agentValidation.ok) {
       invalidIdentifiers(req, res);
       return;
     }
     const items = tenantUsageEntries(tenantId)
-      .filter((entry) => entry.agent === agent)
+      .filter((entry) => entry.agent === agentValidation.value)
       .map((entry) => ({ serviceId: entry.serviceId, total: entry.total }));
-    res.json({ agent, items });
+    res.json({ agent: agentValidation.value, items });
   });
 
   router.get("/api/v1/usage/:agent/:serviceId", (req: Request, res: Response) => {
     const agent = String(req.params.agent);
     const serviceId = String(req.params.serviceId);
     const tenantId = resolveTenantId(req);
-    if (!isValidAgentId(agent) || !isValidServiceId(serviceId)) {
+    const agentValidation = validateAgentRequest(agent);
+    if (!agentValidation.ok || !isValidServiceId(serviceId)) {
       invalidIdentifiers(req, res);
       return;
     }
-    const total = usageStore.get(usageKey(tenantId, agent, serviceId)) ?? 0;
-    res.json({ agent, serviceId, total });
+    const total =
+      usageStore.get(usageKey(tenantId, agentValidation.value, serviceId)) ?? 0;
+    res.json({ agent: agentValidation.value, serviceId, total });
   });
 
   router.delete("/api/v1/usage/:agent/:serviceId", (req: Request, res: Response) => {
@@ -440,23 +482,28 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
     const serviceId = String(req.params.serviceId);
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
-    if (!isValidAgentId(agent) || !isValidServiceId(serviceId)) {
+    const agentValidation = validateAgentRequest(agent);
+    if (!agentValidation.ok || !isValidServiceId(serviceId)) {
       invalidIdentifiers(req, res);
       return;
     }
-    const key = usageKey(tenantId, agent, serviceId);
+    const key = usageKey(tenantId, agentValidation.value, serviceId);
     if (!usageStore.has(key)) {
       res.status(404).json({
         error: "not_found",
-        message: `no usage recorded for ${agent}/${serviceId}`,
+        message: `no usage recorded for ${agentValidation.value}/${serviceId}`,
         requestId,
       });
       return;
     }
     const clearedTotal = usageStore.get(key) ?? 0;
     usageStore.set(key, 0);
-    recordEvent("usage.reset", { agent, serviceId, clearedTotal });
-    res.json({ agent, serviceId, clearedTotal });
+    recordEvent("usage.reset", {
+      agent: agentValidation.value,
+      serviceId,
+      clearedTotal,
+    });
+    res.json({ agent: agentValidation.value, serviceId, clearedTotal });
   });
 
   return router;
