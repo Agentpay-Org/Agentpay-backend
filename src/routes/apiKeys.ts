@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { createApiKeyRecord } from "../auth/apiKeys.js";
 import { validateBody } from "../middleware/validate.js";
-import { applyOffsetPage } from "../listPagination.js";
+import { applyListPage } from "../listPagination.js";
 import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { apiKeyStore, config, hasStoreCapacityFor } from "../store/state.js";
 import { getRequestId } from "../types.js";
@@ -41,8 +41,19 @@ export function createApiKeysRouter(): Router {
         label: meta.label,
         createdAt: meta.createdAt,
       }));
-    const { items, total } = applyOffsetPage(allItems, req.query);
-    res.json({ items, total });
+    const paged = applyListPage(allItems, req.query, (item) => item.prefix);
+    if (!paged.ok) {
+      res.status(400).json({
+        error: "invalid_request",
+        message:
+          paged.reason === "malformed"
+            ? "cursor is malformed"
+            : "cursor is invalid or expired",
+        requestId: getRequestId(req),
+      });
+      return;
+    }
+    res.json({ items: paged.items, total: paged.total, nextCursor: paged.nextCursor });
   });
 
   router.post(
