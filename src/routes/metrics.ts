@@ -11,6 +11,7 @@ import {
 } from "../store/state.js";
 import { etagFor } from "../httpCache.js";
 import { scanUsageStore } from "../usageScan.js";
+import { rejectUnknownQueryParams } from "../middleware/validate.js";
 
 /**
  * Builds operational metrics and aggregate stats routes.
@@ -18,7 +19,7 @@ import { scanUsageStore } from "../usageScan.js";
 export function createMetricsRouter(): Router {
   const router = Router();
 
-  router.get("/api/v1/metrics", (_req, res: Response) => {
+  router.get("/api/v1/metrics", rejectUnknownQueryParams([]), (_req, res: Response) => {
     let totalRequests = 0;
     for (const v of usageStore.values()) totalRequests += v;
     const lines = [
@@ -55,7 +56,7 @@ export function createMetricsRouter(): Router {
     res.send(lines.join("\n") + "\n");
   });
 
-  router.get("/api/v1/stats", (req, res: Response) => {
+  router.get("/api/v1/stats", rejectUnknownQueryParams([]), (req, res: Response) => {
     let totalRequests = 0;
     const agents = new Set<string>();
     for (const { agent, total } of scanUsageStore()) {
