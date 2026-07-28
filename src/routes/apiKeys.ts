@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { createApiKeyRecord } from "../auth/apiKeys.js";
 import { validateBody } from "../middleware/validate.js";
-import { parseIntParam } from "../queryParams.js";
+import { applyOffsetPage } from "../listPagination.js";
 import { requestBodySchemas } from "../schemas/requestBodies.js";
 import { apiKeyStore, config, hasStoreCapacityFor } from "../store/state.js";
 import { getRequestId } from "../types.js";
@@ -41,18 +41,8 @@ export function createApiKeysRouter(): Router {
         label: meta.label,
         createdAt: meta.createdAt,
       }));
-    const total = allItems.length;
-    const limit = parseIntParam(req.query.limit, {
-      defaultValue: total || 1,
-      min: 1,
-      max: 1000,
-    });
-    const offset = parseIntParam(req.query.offset, {
-      defaultValue: 0,
-      min: 0,
-      max: Number.MAX_SAFE_INTEGER,
-    });
-    res.json({ items: allItems.slice(offset, offset + limit), total });
+    const { items, total } = applyOffsetPage(allItems, req.query);
+    res.json({ items, total });
   });
 
   router.post(
