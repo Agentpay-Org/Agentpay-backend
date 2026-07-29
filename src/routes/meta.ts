@@ -60,7 +60,16 @@ function buildHealthChecks(): HealthCheck[] {
   ];
 }
 
-/** Reports whether this process should receive fresh traffic. */
+/**
+ * Handles the readiness probe endpoint for orchestrators and load balancers.
+ * Returns `200 { ready: true }` during normal operation and `503 { ready: false }`
+ * after graceful shutdown begins. This allows fresh traffic to be routed away
+ * from draining instances while the liveness probe (`GET /health`) keeps reporting
+ * the process is alive.
+ * 
+ * The readiness signal is independent from the admin pause flag, which only gates
+ * write operations. A paused instance is still ready to receive traffic.
+ */
 export function handleReadiness(_req: Request, res: Response): void {
   const ready = isReady();
   res.status(ready ? 200 : 503).json({ ready });
