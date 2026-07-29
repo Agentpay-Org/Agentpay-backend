@@ -106,12 +106,15 @@ export function createWebhooksRouter(): Router {
     res.json({ id, deliveredAt: Date.now(), simulated: true });
   });
 
-  router.patch("/api/v1/webhooks/:id", (req: Request, res: Response) => {
-    const id = String(req.params.id);
-    const requestId = getRequestId(req);
-    const existing = webhookStore.get(id);
-    if (!existing) {
-      res.status(404).json({
+  router.patch(
+    "/api/v1/webhooks/:id",
+    validateBody(requestBodySchemas.webhookPatch),
+    (req: Request, res: Response) => {
+      const id = String(req.params.id);
+      const requestId = getRequestId(req);
+      const existing = webhookStore.get(id);
+      if (!existing) {
+        res.status(404).json({
         error: "not_found",
         message: `webhook ${id} not registered`,
         requestId,
@@ -152,10 +155,11 @@ export function createWebhooksRouter(): Router {
         return;
       }
       existing.events = result.value;
+      }
+      webhookStore.set(id, existing);
+      res.json({ id, ...existing });
     }
-    webhookStore.set(id, existing);
-    res.json({ id, ...existing });
-  });
+  );
 
   router.post(
     "/api/v1/webhooks",

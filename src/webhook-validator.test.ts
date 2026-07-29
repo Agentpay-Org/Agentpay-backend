@@ -130,4 +130,29 @@ void describe("shared webhook validation", () => {
     assert.strictEqual(urlOnly.body.url, "https://example.test/updated");
     assert.deepStrictEqual(urlOnly.body.events, ["usage.settled"]);
   });
+
+  void it("rejects unexpected fields and non-object webhook patch bodies", async () => {
+    const app = createApp();
+
+    const created = await request(app)
+      .post("/api/v1/webhooks")
+      .send({ url: "https://example.test/hook", events: ["usage.recorded"] });
+    assert.strictEqual(created.status, 201);
+    const id = created.body.id as unknown;
+    if (typeof id !== "string") {
+      throw new TypeError("expected webhook id");
+    }
+
+    const unknownField = await request(app)
+      .patch(`/api/v1/webhooks/${id}`)
+      .send({ url: "https://example.test/updated", unexpected: true });
+    assert.strictEqual(unknownField.status, 400);
+    assert.strictEqual(unknownField.body.error, "invalid_request");
+    assert.strictEqual(unknownField.body.message, "unexpected field: unexpected");
+
+    const wrongType = await request(app).patch(`/api/v1/webhooks/${id}`).send([]);
+    assert.strictEqual(wrongType.status, 400);
+    assert.strictEqual(wrongType.body.error, "invalid_request");
+    assert.strictEqual(wrongType.body.message, "body must be a JSON object");
+  });
 });
