@@ -5,6 +5,7 @@ import { BULK_MAX_ITEMS_LIMIT, config } from "../store/state.js";
 import { parseIntParam } from "../queryParams.js";
 import { rejectUnknownQueryParams } from "../middleware/validate.js";
 import { getRequestId } from "../types.js";
+import { validateConfigPatchBody } from "../configValidation.js";
 
 const allowedConfigKeys = [
   "rateLimitPerWindow",

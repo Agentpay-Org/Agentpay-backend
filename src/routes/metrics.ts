@@ -64,7 +64,7 @@ export function createMetricsRouter(): Router {
       totalRequests += total;
       agents.add(agent);
     }
-  );
+  });
 
   return router;
 }
