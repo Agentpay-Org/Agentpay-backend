@@ -69,6 +69,7 @@ function stringField(
     minLength?: number;
     maxLength?: number;
     pattern?: string;
+    rejectBlank?: boolean;
   }
 ): FieldSchema {
   return {
@@ -82,6 +83,9 @@ function stringField(
         return message;
       }
       if (options.pattern !== undefined && !new RegExp(options.pattern).test(value)) {
+        return message;
+      }
+      if (options.rejectBlank && value.trim().length === 0) {
         return message;
       }
       return undefined;
@@ -226,6 +230,7 @@ export const requestBodySchemas = {
     label: stringField("label must be a non-empty string up to 64 chars", {
       minLength: 1,
       maxLength: 64,
+      rejectBlank: true,
     }),
   }),
   bulkServices: strictObjectSchema({
