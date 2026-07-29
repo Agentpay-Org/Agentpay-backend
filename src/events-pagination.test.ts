@@ -145,4 +145,69 @@ void describe("event log cursor pagination", () => {
     assert.strictEqual(expired.body.error, "invalid_request");
     assert.ok(expired.body.message.includes("cursor"));
   });
+
+  void it("returns empty items with null cursor when log is empty", async () => {
+    const app = createApp();
+    const response = await request(app).get("/api/v1/events");
+
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.body.total, 0);
+    assert.deepStrictEqual(response.body.items, []);
+    assert.strictEqual(response.body.nextCursor, null);
+  });
+
+  void it("returns null cursor when all items fit in a single page", async () => {
+    seedEvents();
+    const app = createApp();
+    const response = await request(app).get("/api/v1/events?limit=100");
+
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.body.total, 5);
+    assert.strictEqual(response.body.items.length, 5);
+    assert.strictEqual(response.body.nextCursor, null);
+  });
+
+  void it("combines since filter with cursor pagination", async () => {
+    seedEvents();
+    const app = createApp();
+
+    const events = eventLog.slice();
+    const midTimestamp = events[2].ts;
+
+    const firstPage = await request(app)
+      .get("/api/v1/events")
+      .query({ since: midTimestamp, limit: 2 });
+
+    assert.strictEqual(firstPage.status, 200);
+    assert.ok(firstPage.body.total >= 2);
+    assert.ok(firstPage.body.items.every((e: { ts: number }) => e.ts >= midTimestamp));
+
+    if (firstPage.body.nextCursor) {
+      const secondPage = await request(app)
+        .get("/api/v1/events")
+        .query({ since: midTimestamp, limit: 2, cursor: firstPage.body.nextCursor });
+
+      assert.strictEqual(secondPage.status, 200);
+      assert.ok(secondPage.body.items.every((e: { ts: number }) => e.ts >= midTimestamp));
+    }
+  });
+
+  void it("handles cursor pointing to the oldest event", async () => {
+    seedEvents();
+    const app = createApp();
+
+    const allEvents = await request(app).get("/api/v1/events?limit=100");
+    const oldestEvent = allEvents.body.items[0];
+    const cursor = Buffer.from(`${oldestEvent.ts}:${oldestEvent.id}`).toString(
+      "base64url"
+    );
+
+    const response = await request(app)
+      .get("/api/v1/events")
+      .query({ cursor, limit: 10 });
+
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.body.items.length, 0);
+    assert.strictEqual(response.body.nextCursor, null);
+  });
 });

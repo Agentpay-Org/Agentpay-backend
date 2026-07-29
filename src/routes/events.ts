@@ -6,12 +6,32 @@ import { rejectUnknownQueryParams } from "../middleware/validate.js";
 import { config } from "../store/state.js";
 import { getRequestId } from "../types.js";
 
-/** Encodes an event log boundary into an opaque backward-paging cursor. */
+/**
+ * Encodes an event log boundary into an opaque backward-paging cursor.
+ * 
+ * The cursor format is `ts:id` encoded as base64url, allowing clients to
+ * page backward through older events. The cursor is tied to a specific event
+ * in the log and remains valid as long as that event exists in the bounded
+ * in-memory store.
+ * 
+ * @param event - The event marking the page boundary
+ * @returns Base64url-encoded cursor string
+ */
 function encodeCursor(event: AppEvent): string {
   return Buffer.from(`${event.ts}:${event.id}`).toString("base64url");
 }
 
-/** Decodes a paging cursor, returning null when it is not well formed. */
+/**
+ * Decodes a paging cursor, returning null when it is not well formed.
+ * 
+ * Validates the cursor structure (base64url-encoded `ts:id`) and ensures
+ * the timestamp is a valid integer. Does not validate whether the cursor
+ * points to an event that still exists in the log — that check happens
+ * during query execution.
+ * 
+ * @param raw - The cursor string from the client
+ * @returns Decoded cursor components or null if malformed
+ */
 function decodeCursor(raw: string): { ts: number; id: string } | null {
   let decoded: string;
   try {
