@@ -222,6 +222,7 @@ function createShutdownController({
       return false;
     }
     draining = true;
+    _markShuttingDown();
     requestedExitCode = exitCode;
     logger.log(`Received ${signal}, draining...`);
     server.close((err?: Error) => {
@@ -274,6 +275,7 @@ if (isServerEntrypoint()) {
   configureServerTimeouts(server);
 
   const shutdown = (signal: string) => {
+    _markShuttingDown();
     logShutdownSignal(logger, signal);
     server.close((err) => {
       if (err) {
