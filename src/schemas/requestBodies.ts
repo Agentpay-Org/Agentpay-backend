@@ -191,6 +191,15 @@ const priceStroopsField = integerField("priceStroops must be a non-negative inte
   minimum: 0,
 });
 
+const runtimeConfigField = (
+  key: string,
+  max: number
+) =>
+  integerField(`${key} must be an integer between 1 and ${max}`, {
+    required: false,
+    minimum: 1,
+  });
+
 const usageItemSchema = {
   type: "object",
   additionalProperties: false,
@@ -211,12 +220,6 @@ const serviceItemSchema = {
     priceStroops: priceStroopsField.openApi,
   },
 };
-
-const positiveRuntimeConfigField = (key: string) =>
-  integerField(`${key} must be a positive integer`, {
-    required: false,
-    exclusiveMinimum: 0,
-  });
 
 export const requestBodySchemas = {
   apiKeyCreate: strictObjectSchema({
@@ -240,9 +243,14 @@ export const requestBodySchemas = {
     }),
   }),
   configPatch: strictObjectSchema({
-    rateLimitPerWindow: positiveRuntimeConfigField("rateLimitPerWindow"),
-    rateLimitWindowMs: positiveRuntimeConfigField("rateLimitWindowMs"),
-    bulkMaxItems: positiveRuntimeConfigField("bulkMaxItems"),
+    rateLimitPerWindow: runtimeConfigField("rateLimitPerWindow", 1_000_000),
+    rateLimitWindowMs: runtimeConfigField("rateLimitWindowMs", 86_400_000),
+    bulkMaxItems: runtimeConfigField("bulkMaxItems", 1000),
+    eventLogCap: runtimeConfigField("eventLogCap", 100_000),
+    usageStoreMaxKeys: runtimeConfigField("usageStoreMaxKeys", 100_000),
+    servicesStoreMaxKeys: runtimeConfigField("servicesStoreMaxKeys", 10_000),
+    webhookStoreMaxKeys: runtimeConfigField("webhookStoreMaxKeys", 10_000),
+    apiKeyStoreMaxKeys: runtimeConfigField("apiKeyStoreMaxKeys", 10_000),
   }),
   serviceCreate: strictObjectSchema({
     serviceId: serviceIdField,

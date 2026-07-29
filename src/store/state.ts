@@ -28,6 +28,10 @@ export const config: Record<string, number> = {
   rateLimitWindowMs: DEFAULT_RATE_LIMIT_WINDOW_MS,
   bulkMaxItems: 100,
   eventLogCap: 10_000,
+  usageStoreMaxKeys: 100_000,
+  servicesStoreMaxKeys: 10_000,
+  webhookStoreMaxKeys: 10_000,
+  apiKeyStoreMaxKeys: 10_000,
 };
 
 /** Read-only snapshot of default config values for admin reset. */
