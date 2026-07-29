@@ -1,10 +1,11 @@
 import { trimEventLogToCap } from "../events.js";
 import { Router, type Request, type Response } from "express";
 import { paginateByCursor } from "../cursorPagination.js";
-import { BULK_MAX_ITEMS_LIMIT, config } from "../store/state.js";
+import { config } from "../store/state.js";
 import { parseIntParam } from "../queryParams.js";
 import { rejectUnknownQueryParams } from "../middleware/validate.js";
 import { getRequestId } from "../types.js";
+import { validateConfigPatchBody } from "../configValidation.js";
 
 const allowedConfigKeys = [
   "rateLimitPerWindow",
@@ -17,21 +18,6 @@ const allowedConfigKeys = [
   "apiKeyStoreMaxKeys",
 ] as const;
 
-const configCeilings: Record<string, number> = {
-  rateLimitPerWindow: 1_000_000,
-  rateLimitWindowMs: 86_400_000,
-  bulkMaxItems: BULK_MAX_ITEMS_LIMIT,
-  eventLogCap: 100_000,
-  usageStoreMaxKeys: 100_000,
-  servicesStoreMaxKeys: 10_000,
-  webhookStoreMaxKeys: 10_000,
-  apiKeyStoreMaxKeys: 10_000,
-};
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 const DEFAULT_CONFIG_PAGE_SIZE = 4;
 const MAX_CONFIG_PAGE_SIZE = 4;
 
@@ -41,24 +27,6 @@ function buildConfigEntries(): ConfigEntry[] {
   return Object.entries(config)
     .map(([key, value]) => ({ key, value }))
     .sort((a, b) => a.key.localeCompare(b.key));
-}
-
-/** Validates one config value, returning an error message when invalid. */
-function validateConfigValue(key: string, value: unknown): string | undefined {
-  const isInteger = typeof value === "number" && Number.isInteger(value);
-  if (key === "bulkMaxItems") {
-    if (!isInteger || value < 1 || value > BULK_MAX_ITEMS_LIMIT) {
-      return `bulkMaxItems must be an integer between 1 and ${BULK_MAX_ITEMS_LIMIT}`;
-    }
-    return undefined;
-  }
-  const ceiling = configCeilings[key];
-  if (!isInteger || value < 1 || (ceiling !== undefined && value > ceiling)) {
-    return ceiling !== undefined
-      ? `${key} must be an integer between 1 and ${ceiling}`
-      : `${key} must be a positive integer`;
-  }
-  return undefined;
 }
 
 /**

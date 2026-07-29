@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { recordEvent } from "../events.js";
 import { isValidServiceId } from "../identifiers.js";
+import { createIdempotencyMiddleware } from "../middleware/idempotency.js";
 import { validateBody } from "../middleware/validate.js";
 import { isSafePrice } from "../numericLimits.js";
 import { parseIntParam } from "../queryParams.js";
@@ -130,13 +131,14 @@ function _serviceAgentUsage(serviceId: string): ServiceAgentUsage {
  */
 export function createServicesRouter(): Router {
   const router = Router();
+  const idempotency = createIdempotencyMiddleware();
 
   /**
    * Registers up to config.bulkMaxItems services in a single batch while
    * rejecting duplicate ids within the same request.  The active limit is
    * controlled by PATCH /api/v1/config (default 100, max 1000).
    */
-  router.post("/api/v1/services/bulk", (req: Request, res: Response) => {
+  router.post("/api/v1/services/bulk", idempotency, (req: Request, res: Response) => {
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
     const { items } = req.body ?? {};
@@ -174,7 +176,7 @@ export function createServicesRouter(): Router {
     res.status(201).json({ results });
   });
 
-  router.post("/api/v1/services", (req: Request, res: Response) => {
+  router.post("/api/v1/services", idempotency, (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
@@ -340,7 +342,7 @@ export function createServicesRouter(): Router {
     res.json(serviceReadShape(tenantId, serviceId, meta));
   });
 
-  router.put("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
+  router.put("/api/v1/services/:serviceId/metadata", idempotency, (req: Request, res: Response) => {
     const serviceId = String(req.params.serviceId);
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
@@ -390,7 +392,7 @@ export function createServicesRouter(): Router {
   });
 
   /** Idempotently disables a registered service and emits an audit event. */
-  router.post("/api/v1/services/:serviceId/disable", (req: Request, res: Response) => {
+  router.post("/api/v1/services/:serviceId/disable", idempotency, (req: Request, res: Response) => {
     const serviceId = String(req.params.serviceId);
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
@@ -409,7 +411,7 @@ export function createServicesRouter(): Router {
   });
 
   /** Idempotently enables a registered service and emits an audit event. */
-  router.post("/api/v1/services/:serviceId/enable", (req: Request, res: Response) => {
+  router.post("/api/v1/services/:serviceId/enable", idempotency, (req: Request, res: Response) => {
     const serviceId = String(req.params.serviceId);
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
@@ -429,6 +431,7 @@ export function createServicesRouter(): Router {
 
   router.patch(
     "/api/v1/services/:serviceId/disabled",
+    idempotency,
     validateBody(requestBodySchemas.serviceDisabledPatch),
     (req: Request, res: Response) => {
       const serviceId = String(req.params.serviceId);
@@ -458,7 +461,7 @@ export function createServicesRouter(): Router {
     }
   );
 
-  router.patch("/api/v1/services/:serviceId/price", (req: Request, res: Response) => {
+  router.patch("/api/v1/services/:serviceId/price", idempotency, (req: Request, res: Response) => {
     const serviceId = String(req.params.serviceId);
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
