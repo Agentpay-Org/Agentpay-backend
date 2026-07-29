@@ -1,16 +1,14 @@
-import { Router, type Request, type Response } from "express";
+import { Router, type Response } from "express";
 import { renderHttpMetrics } from "../metrics.js";
 import {
   apiKeyStore,
   lifetimeRequests,
-  parseServiceKey,
   pauseState,
   servicesStore,
   settlementCounters,
   usageStore,
   webhookStore,
 } from "../store/state.js";
-import { etagFor } from "../httpCache.js";
 import { scanUsageStore } from "../usageScan.js";
 import { rejectUnknownQueryParams } from "../middleware/validate.js";
 
@@ -57,11 +55,9 @@ export function createMetricsRouter(): Router {
     res.send(lines.join("\n") + "\n");
   });
 
-  router.get("/api/v1/stats", rejectUnknownQueryParams([]), (req, res: Response) => {
-    let totalRequests = 0;
+  router.get("/api/v1/stats", rejectUnknownQueryParams([]), (_req, _res: Response) => {
     const agents = new Set<string>();
-    for (const { agent, total } of scanUsageStore()) {
-      totalRequests += total;
+    for (const { agent } of scanUsageStore()) {
       agents.add(agent);
     }
   });
