@@ -7,7 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "test": "npm run build && NODE_ENV=test node --test dist/*.test.js dist/**/*.test.js",
+    "test": "npm run build && cross-env NODE_ENV=test node --test dist/*.test.js dist/**/*.test.js",
     "lint": "eslint .",
     "format": "prettier --check ."
   },
@@ -28,6 +28,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^26.1.1",
     "@types/supertest": "^7.2.1",
+    "cross-env": "^10.1.0",
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.9.6",

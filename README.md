@@ -63,6 +63,26 @@ document is in parity — all registered routes appear in the paths object — s
 additions or removals of routes must be reflected in the handler at
 `src/routes/meta.ts`.
 
+### Query parameter validation
+
+List endpoints (`GET /api/v1/agents`, `GET /api/v1/services`, `GET /api/v1/services/:serviceId/agents/top`, `GET /api/v1/events`) accept numeric query parameters (`limit`, `since`) that are safely parsed and bounded:
+
+- **Malformed input** (`?limit=abc`, `?limit=NaN`, `?limit=Infinity`) falls back to the endpoint's default value
+- **Out-of-range values** are clamped to `[min, max]` (e.g., `?limit=0` becomes `1`, `?limit=9999` becomes the max)
+- **Float inputs** are truncated to integers before clamping (`?limit=3.7` becomes `3`)
+
+This prevents silent failures (empty arrays from `NaN` propagation) and ensures clients always receive bounded, predictable responses.
+
+**Examples:**
+
+| Endpoint | Parameter | Default | Min | Max | Example |
+| -------- | --------- | ------- | --- | --- | ------- |
+| `GET /api/v1/agents` | `limit` | 100 | 1 | 1000 | `?limit=abc` → 100 results |
+| `GET /api/v1/services` | `limit` | 200 | 1 | 1000 | `?limit=0` → 1 result |
+| `GET /api/v1/services/:serviceId/agents/top` | `limit` | 10 | 1 | 100 | `?limit=250` → 100 results |
+| `GET /api/v1/events` | `limit` | 100 | 1 | `eventLogCap` | `?limit=3.7` → 3 results |
+| `GET /api/v1/events` | `since` | 0 | 0 | `Number.MAX_SAFE_INTEGER` | `?since=abc` → 0 (all events) |
+
 ## Project structure
 
 ```
