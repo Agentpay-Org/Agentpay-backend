@@ -50,6 +50,7 @@ void describe("readiness endpoint", () => {
   void it("does not leak internal details beyond the ready boolean", async () => {
     const res = await request(app).get("/api/v1/health/ready");
     assert.strictEqual(res.status, 200);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- supertest body is typed any
     assert.deepStrictEqual(Object.keys(res.body), ["ready"]);
     assert.strictEqual(typeof res.body.ready, "boolean");
   });
