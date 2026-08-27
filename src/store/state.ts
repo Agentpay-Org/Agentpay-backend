@@ -1,4 +1,5 @@
 import { DEFAULT_TENANT_ID } from "../tenant.js";
+import type { ChargeRecord } from "../services/chargeReconciliation.js";
 
 /**
  * Mutable process-local stores used by the in-memory AgentPay API.
@@ -149,6 +150,9 @@ export const servicesMetadata = new Map<string, ServiceMetadataDto>();
 
 /** Registered webhooks and their event subscriptions. */
 export const webhookStore = new Map<string, WebhookRecord>();
+
+/** Charge ledger records scanned by the side-effect-free reconciliation job. */
+export const chargeStore = new Map<string, ChargeRecord>();
 
 /** Rate-limiter windows keyed by authenticated API key digest or trusted IP. */
 export const rateBuckets = new Map<string, number[]>();
