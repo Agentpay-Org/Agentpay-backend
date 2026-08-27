@@ -3,7 +3,7 @@ import assert from "node:assert";
 import request from "supertest";
 import { eventLog } from "./events.js";
 import { createApp } from "./index.js";
-import { apiKeyStore, webhookStore } from "./store/state.js";
+import { apiKeyStore, webhookSecretStore, webhookStore } from "./store/state.js";
 
 function urlWithLength(length: number): string {
   const prefix = "https://example.test/";
@@ -26,6 +26,7 @@ function assertInvalidRequest(body: unknown): void {
 beforeEach(() => {
   apiKeyStore.clear();
   webhookStore.clear();
+  webhookSecretStore.clear();
   eventLog.length = 0;
 });
 
@@ -90,11 +91,13 @@ void describe("webhook CRUD coverage", () => {
     if (typeof id !== "string") {
       throw new TypeError("expected webhook id");
     }
+    assert.match(created.body.secret as string, /^[0-9a-f]{32}$/);
 
     const listed = await request(app).get("/api/v1/webhooks");
     assert.strictEqual(listed.status, 200);
     assert.strictEqual(listed.body.items[0].id, id);
     assert.strictEqual(listed.body.items[0].url, "https://example.test/hook");
+    assert.strictEqual(listed.body.items[0].secret, undefined);
 
     const patchedUrl = await request(app)
       .patch(`/api/v1/webhooks/${id}`)
@@ -118,6 +121,7 @@ void describe("webhook CRUD coverage", () => {
 
     const deleted = await request(app).delete(`/api/v1/webhooks/${id}`);
     assert.strictEqual(deleted.status, 204);
+    assert.strictEqual(webhookSecretStore.has(id), false);
 
     const missingDelete = await request(app).delete(`/api/v1/webhooks/${id}`);
     assert.strictEqual(missingDelete.status, 404);

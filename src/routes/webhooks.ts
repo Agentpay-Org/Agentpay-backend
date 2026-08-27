@@ -5,7 +5,12 @@ import { paginateByCursor } from "../cursorPagination.js";
 import { rejectUnknownQueryParams, validateBody } from "../middleware/validate.js";
 import { parseIntParam } from "../queryParams.js";
 import { requestBodySchemas } from "../schemas/requestBodies.js";
-import { config, hasStoreCapacityFor, webhookStore } from "../store/state.js";
+import {
+  config,
+  hasStoreCapacityFor,
+  webhookSecretStore,
+  webhookStore,
+} from "../store/state.js";
 import { getRequestId } from "../types.js";
 import { KNOWN_EVENT_TYPES } from "../events.js";
 
@@ -104,6 +109,7 @@ export function createWebhooksRouter(): Router {
       return;
     }
     webhookStore.delete(id);
+    webhookSecretStore.delete(id);
     res.status(204).send();
   });
 
@@ -230,7 +236,9 @@ export function createWebhooksRouter(): Router {
 
       const id = `wh_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
       webhookStore.set(id, { url, events: eventValidation.value, createdAt: Date.now() });
-      res.status(201).json({ id, url, events: eventValidation.value });
+      const secret = randomUUID().replace(/-/g, "");
+      webhookSecretStore.set(id, { secret, createdAt: Date.now() });
+      res.status(201).json({ id, url, events: eventValidation.value, secret });
     }
   );
 
