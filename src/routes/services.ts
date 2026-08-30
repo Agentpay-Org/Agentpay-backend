@@ -15,16 +15,25 @@ import {
   servicesDisabled,
   servicesMetadata,
   servicesStore,
+  servicesVersions,
   type ServiceMetadataDto,
   usageStore,
 } from "../store/state.js";
 import { resolveTenantId } from "../tenant.js";
 import { getRequestId } from "../types.js";
 import { etagFor } from "../httpCache.js";
+import {
+  conflictResponse,
+  nextServiceVersion,
+  parseServiceVersion,
+  ServiceVersionConflictError,
+  versionForService,
+} from "../serviceVersioning.js";
 
 type ServiceReadShape = {
   serviceId: string;
   priceStroops: number;
+  version: number;
   disabled: boolean;
   description?: string;
   owner?: string;
@@ -78,9 +87,40 @@ function serviceReadShape(
   return {
     serviceId,
     priceStroops: meta.priceStroops,
+    version: serviceVersion(key),
     disabled: servicesDisabled.has(key),
     ...(metadata ?? {}),
   };
+}
+
+function serviceVersion(key: string): number {
+  return versionForService(servicesStore.has(key), servicesVersions, key);
+}
+
+function requireExpectedVersion(
+  req: Request,
+  res: Response,
+  body: Record<string, unknown>,
+  current: number,
+): number | undefined {
+  const value = body.expectedVersion;
+  const expected = parseServiceVersion(value);
+  if (expected === undefined) {
+    res.status(400).json({
+      error: "invalid_request",
+      message: "expectedVersion must be a positive integer",
+      requestId: getRequestId(req),
+    });
+    return undefined;
+  }
+  if (expected !== current) {
+    res.status(409).json(conflictResponse(
+      new ServiceVersionConflictError(expected, current),
+      getRequestId(req),
+    ));
+    return undefined;
+  }
+  return expected;
 }
 
 /** Validates service metadata for both inline registration and metadata updates. */
@@ -186,6 +226,7 @@ export function createServicesRouter(): Router {
       "priceStroops",
       "description",
       "owner",
+      "expectedVersion",
     ]);
     for (const field of Object.keys(body)) {
       if (!allowedFields.has(field)) {
@@ -243,6 +284,8 @@ export function createServicesRouter(): Router {
 
     const key = serviceKey(tenantId, serviceId);
     const isNew = !servicesStore.has(key);
+    const currentVersion = serviceVersion(key);
+    if (!isNew && requireExpectedVersion(req, res, body, currentVersion) === undefined) return;
     if (
       !hasStoreCapacityFor(servicesStore.size, !isNew, config.servicesStoreMaxKeys)
     ) {
@@ -254,6 +297,8 @@ export function createServicesRouter(): Router {
       return;
     }
     servicesStore.set(key, { priceStroops });
+    if (isNew) servicesVersions.set(key, 1);
+    else nextServiceVersion(servicesVersions, key, currentVersion);
     if (metadata) {
       servicesMetadata.set(key, metadata);
     }
@@ -356,6 +401,8 @@ export function createServicesRouter(): Router {
       return;
     }
     const { description, owner } = req.body ?? {};
+    const currentVersion = serviceVersion(key);
+    if (requireExpectedVersion(req, res, req.body ?? {}, currentVersion) === undefined) return;
     if (typeof description !== "string" || description.length > 256) {
       res.status(400).json({
         error: "invalid_request",
@@ -373,13 +420,15 @@ export function createServicesRouter(): Router {
       return;
     }
     servicesMetadata.set(key, { description, owner });
-    res.json({ serviceId, description, owner });
+    nextServiceVersion(servicesVersions, key, currentVersion);
+    res.json({ serviceId, description, owner, version: serviceVersion(key) });
   });
 
   router.get("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
     const serviceId = String(req.params.serviceId);
     const tenantId = resolveTenantId(req);
-    const meta = servicesMetadata.get(serviceKey(tenantId, serviceId));
+    const key = serviceKey(tenantId, serviceId);
+    const meta = servicesMetadata.get(key);
     if (!meta) {
       res.status(404).json({
         error: "not_found",
@@ -388,10 +437,10 @@ export function createServicesRouter(): Router {
       });
       return;
     }
-    res.json({ serviceId, ...meta });
+    res.json({ serviceId, ...meta, version: serviceVersion(key) });
   });
 
-  /** Idempotently disables a registered service and emits an audit event. */
+  /** Disables a registered service after a version-guarded read. */
   router.post("/api/v1/services/:serviceId/disable", idempotency, (req: Request, res: Response) => {
     const serviceId = String(req.params.serviceId);
     const requestId = getRequestId(req);
@@ -405,12 +454,15 @@ export function createServicesRouter(): Router {
       });
       return;
     }
+    const currentVersion = serviceVersion(key);
+    if (requireExpectedVersion(req, res, req.body ?? {}, currentVersion) === undefined) return;
     servicesDisabled.add(key);
+    nextServiceVersion(servicesVersions, key, currentVersion);
     recordEvent("service.disabled", { serviceId, tenantId });
-    res.json({ serviceId, disabled: true });
+    res.json({ serviceId, disabled: true, version: serviceVersion(key) });
   });
 
-  /** Idempotently enables a registered service and emits an audit event. */
+  /** Enables a registered service after a version-guarded read. */
   router.post("/api/v1/services/:serviceId/enable", idempotency, (req: Request, res: Response) => {
     const serviceId = String(req.params.serviceId);
     const requestId = getRequestId(req);
@@ -424,9 +476,12 @@ export function createServicesRouter(): Router {
       });
       return;
     }
+    const currentVersion = serviceVersion(key);
+    if (requireExpectedVersion(req, res, req.body ?? {}, currentVersion) === undefined) return;
     servicesDisabled.delete(key);
+    nextServiceVersion(servicesVersions, key, currentVersion);
     recordEvent("service.enabled", { serviceId, tenantId });
-    res.json({ serviceId, disabled: false });
+    res.json({ serviceId, disabled: false, version: serviceVersion(key) });
   });
 
   router.patch(
@@ -447,6 +502,8 @@ export function createServicesRouter(): Router {
         return;
       }
       const { disabled } = req.body ?? {};
+      const currentVersion = serviceVersion(key);
+      if (requireExpectedVersion(req, res, req.body ?? {}, currentVersion) === undefined) return;
       if (typeof disabled !== "boolean") {
         res.status(400).json({
           error: "invalid_request",
@@ -457,7 +514,8 @@ export function createServicesRouter(): Router {
       }
       if (disabled) servicesDisabled.add(key);
       else servicesDisabled.delete(key);
-      res.json({ serviceId, disabled });
+      nextServiceVersion(servicesVersions, key, currentVersion);
+      res.json({ serviceId, disabled, version: serviceVersion(key) });
     }
   );
 
@@ -476,6 +534,8 @@ export function createServicesRouter(): Router {
       return;
     }
     const { priceStroops } = req.body ?? {};
+    const currentVersion = serviceVersion(key);
+    if (requireExpectedVersion(req, res, req.body ?? {}, currentVersion) === undefined) return;
     if (!isSafePrice(priceStroops)) {
       res.status(400).json({
         error: "invalid_request",
@@ -486,7 +546,8 @@ export function createServicesRouter(): Router {
     }
     meta.priceStroops = priceStroops;
     servicesStore.set(key, meta);
-    res.json({ serviceId, ...meta });
+    nextServiceVersion(servicesVersions, key, currentVersion);
+    res.json({ serviceId, ...meta, version: serviceVersion(key) });
   });
 
   router.delete("/api/v1/services/:serviceId", (req: Request, res: Response) => {
@@ -502,6 +563,7 @@ export function createServicesRouter(): Router {
       return;
     }
     servicesStore.delete(key);
+    servicesVersions.delete(key);
     servicesDisabled.delete(key);
     servicesMetadata.delete(key);
     recordEvent("service.deleted", { serviceId });
