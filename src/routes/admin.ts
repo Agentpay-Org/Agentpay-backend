@@ -9,6 +9,7 @@ import {
   servicesDisabled,
   servicesMetadata,
   servicesStore,
+  servicesVersions,
   usageStore,
   webhookStore,
 } from "../store/state.js";
@@ -65,6 +66,7 @@ function clearInMemoryState(): { cleared: AdminResetSummary; auditEvent: AppEven
 
   usageStore.clear();
   servicesStore.clear();
+  servicesVersions.clear();
   servicesMetadata.clear();
   servicesDisabled.clear();
   apiKeyStore.clear();

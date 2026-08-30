@@ -39,8 +39,17 @@ export type IdempotencyClaim =
   | { kind: "in_progress"; record: ChargeIdempotencyRecord };
 
 export interface ChargeIdempotencyStore {
-  claim(tenantId: string, key: string, fingerprint: string, now?: number): IdempotencyClaim;
-  complete(record: ChargeIdempotencyRecord, response: StoredChargeResponse, now?: number): void;
+  claim(
+    tenantId: string,
+    key: string,
+    fingerprint: string,
+    now?: number
+  ): IdempotencyClaim;
+  complete(
+    record: ChargeIdempotencyRecord,
+    response: StoredChargeResponse,
+    now?: number
+  ): void;
   release(record: ChargeIdempotencyRecord): void;
   prune(now?: number): number;
   size(): number;
@@ -55,13 +64,20 @@ export interface ChargeIdempotencyStore {
 export class InMemoryChargeIdempotencyStore implements ChargeIdempotencyStore {
   private readonly records = new Map<string, ChargeIdempotencyRecord>();
 
-  claim(tenantId: string, key: string, fingerprint: string, now = Date.now()): IdempotencyClaim {
+  claim(
+    tenantId: string,
+    key: string,
+    fingerprint: string,
+    now = Date.now()
+  ): IdempotencyClaim {
     this.prune(now);
     const namespacedKey = this.namespace(tenantId, key);
     const existing = this.records.get(namespacedKey);
     if (existing) {
-      if (existing.fingerprint !== fingerprint) return { kind: "conflict", record: existing };
-      if (existing.state === "in_progress") return { kind: "in_progress", record: existing };
+      if (existing.fingerprint !== fingerprint)
+        return { kind: "conflict", record: existing };
+      if (existing.state === "in_progress")
+        return { kind: "in_progress", record: existing };
       if (!existing.response) return { kind: "in_progress", record: existing };
       return {
         kind: "replay",
@@ -82,7 +98,11 @@ export class InMemoryChargeIdempotencyStore implements ChargeIdempotencyStore {
     return { kind: "claimed", record };
   }
 
-  complete(record: ChargeIdempotencyRecord, response: StoredChargeResponse, now = Date.now()): void {
+  complete(
+    record: ChargeIdempotencyRecord,
+    response: StoredChargeResponse,
+    now = Date.now()
+  ): void {
     const current = this.records.get(this.namespace(record.tenantId, record.key));
     if (current !== record) return;
     current.state = "completed";
@@ -133,7 +153,16 @@ export class InMemoryChargeStore {
   }
 
   list(tenantId: string): Charge[] {
-    return this.charges.filter((charge) => charge.tenantId === tenantId).map(cloneCharge);
+    return this.charges
+      .filter((charge) => charge.tenantId === tenantId)
+      .map(cloneCharge);
+  }
+
+  get(tenantId: string, chargeId: string): Charge | undefined {
+    const charge = this.charges.find(
+      (candidate) => candidate.tenantId === tenantId && candidate.id === chargeId
+    );
+    return charge === undefined ? undefined : cloneCharge(charge);
   }
 
   count(tenantId?: string): number {
@@ -163,7 +192,9 @@ export function chargeFingerprint(
   input: ChargeInput
 ): string {
   return createHash("sha256")
-    .update(`${method.toUpperCase()}\n${path}\n${tenantId}\n${canonicalChargePayload(input)}`)
+    .update(
+      `${method.toUpperCase()}\n${path}\n${tenantId}\n${canonicalChargePayload(input)}`
+    )
     .digest("hex");
 }
 
@@ -175,9 +206,9 @@ export function validateIdempotencyKey(value: string | undefined): string | unde
   return key;
 }
 
-export function validateChargeInput(body: unknown):
-  | { ok: true; value: ChargeInput }
-  | { ok: false; message: string } {
+export function validateChargeInput(
+  body: unknown
+): { ok: true; value: ChargeInput } | { ok: false; message: string } {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, message: "charge body must be an object" };
   }
@@ -188,11 +219,17 @@ export function validateChargeInput(body: unknown):
   if (typeof record.currency !== "string" || !/^[A-Z]{3}$/.test(record.currency)) {
     return { ok: false, message: "currency must be a three-letter uppercase code" };
   }
-  if (typeof record.source !== "string" || record.source.length < 1 || record.source.length > 256) {
+  if (
+    typeof record.source !== "string" ||
+    record.source.length < 1 ||
+    record.source.length > 256
+  ) {
     return { ok: false, message: "source must be 1-256 characters" };
   }
-  if (record.description !== undefined &&
-      (typeof record.description !== "string" || record.description.length > 500)) {
+  if (
+    record.description !== undefined &&
+    (typeof record.description !== "string" || record.description.length > 500)
+  ) {
     return { ok: false, message: "description must be at most 500 characters" };
   }
   return {
@@ -201,7 +238,9 @@ export function validateChargeInput(body: unknown):
       amount: record.amount as number,
       currency: record.currency,
       source: record.source,
-      ...(record.description === undefined ? {} : { description: record.description as string }),
+      ...(record.description === undefined
+        ? {}
+        : { description: record.description as string }),
     },
   };
 }
@@ -213,6 +252,9 @@ function cloneCharge(charge: Charge): Charge {
 function cloneResponse(response: StoredChargeResponse): StoredChargeResponse {
   return {
     statusCode: response.statusCode,
-    body: response.body === undefined ? undefined : JSON.parse(JSON.stringify(response.body)),
+    body:
+      response.body === undefined
+        ? undefined
+        : JSON.parse(JSON.stringify(response.body)),
   };
 }

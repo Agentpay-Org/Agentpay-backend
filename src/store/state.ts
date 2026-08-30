@@ -155,6 +155,9 @@ export function parseUsageKey(key: string): {
 /** Registered services and their per-request prices, keyed by tenant-aware id. */
 export const servicesStore = new Map<string, { priceStroops: number }>();
 
+/** Monotonic OCC versions for service records, keyed like servicesStore. */
+export const servicesVersions = new Map<string, number>();
+
 /** Services currently disabled for write traffic, keyed by tenant-aware id. */
 export const servicesDisabled = new Set<string>();
 

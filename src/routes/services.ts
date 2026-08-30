@@ -15,6 +15,7 @@ import {
   servicesDisabled,
   servicesMetadata,
   servicesStore,
+  servicesVersions,
   type ServiceMetadataDto,
   usageStore,
 } from "../store/state.js";
@@ -33,6 +34,7 @@ import {
 type ServiceReadShape = {
   serviceId: string;
   priceStroops: number;
+  version: number;
   disabled: boolean;
   description?: string;
   owner?: string;
@@ -86,9 +88,40 @@ function serviceReadShape(
   return {
     serviceId,
     priceStroops: meta.priceStroops,
+    version: serviceVersion(key),
     disabled: servicesDisabled.has(key),
     ...(metadata ?? {}),
   };
+}
+
+function serviceVersion(key: string): number {
+  return versionForService(servicesStore.has(key), servicesVersions, key);
+}
+
+function requireExpectedVersion(
+  req: Request,
+  res: Response,
+  body: Record<string, unknown>,
+  current: number,
+): number | undefined {
+  const value = body.expectedVersion;
+  const expected = parseServiceVersion(value);
+  if (expected === undefined) {
+    res.status(400).json({
+      error: "invalid_request",
+      message: "expectedVersion must be a positive integer",
+      requestId: getRequestId(req),
+    });
+    return undefined;
+  }
+  if (expected !== current) {
+    res.status(409).json(conflictResponse(
+      new ServiceVersionConflictError(expected, current),
+      getRequestId(req),
+    ));
+    return undefined;
+  }
+  return expected;
 }
 
 /** Validates service metadata for both inline registration and metadata updates. */
@@ -198,6 +231,7 @@ export function createServicesRouter(): Router {
       "priceStroops",
       "description",
       "owner",
+      "expectedVersion",
     ]);
     for (const field of Object.keys(body)) {
       if (!allowedFields.has(field)) {
@@ -264,6 +298,8 @@ export function createServicesRouter(): Router {
       return;
     }
     servicesStore.set(key, { priceStroops });
+    if (isNew) servicesVersions.set(key, 1);
+    else nextServiceVersion(servicesVersions, key, currentVersion);
     if (metadata) {
       servicesMetadata.set(key, metadata);
     }
@@ -392,7 +428,8 @@ export function createServicesRouter(): Router {
   router.get("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
     const serviceId = String(req.params.serviceId);
     const tenantId = resolveTenantId(req);
-    const meta = servicesMetadata.get(serviceKey(tenantId, serviceId));
+    const key = serviceKey(tenantId, serviceId);
+    const meta = servicesMetadata.get(key);
     if (!meta) {
       res.status(404).json({
         error: "not_found",
@@ -401,7 +438,7 @@ export function createServicesRouter(): Router {
       });
       return;
     }
-    res.json({ serviceId, ...meta });
+    res.json({ serviceId, ...meta, version: serviceVersion(key) });
   });
 
   /** Idempotently disables a registered service and emits an audit event. */
@@ -468,6 +505,8 @@ export function createServicesRouter(): Router {
         return;
       }
       const { disabled } = req.body ?? {};
+      const currentVersion = serviceVersion(key);
+      if (requireExpectedVersion(req, res, req.body ?? {}, currentVersion) === undefined) return;
       if (typeof disabled !== "boolean") {
         res.status(400).json({
           error: "invalid_request",
@@ -478,7 +517,8 @@ export function createServicesRouter(): Router {
       }
       if (disabled) servicesDisabled.add(key);
       else servicesDisabled.delete(key);
-      res.json({ serviceId, disabled });
+      nextServiceVersion(servicesVersions, key, currentVersion);
+      res.json({ serviceId, disabled, version: serviceVersion(key) });
     }
   );
 
@@ -528,6 +568,7 @@ export function createServicesRouter(): Router {
       return;
     }
     servicesStore.delete(key);
+    servicesVersions.delete(key);
     servicesDisabled.delete(key);
     servicesMetadata.delete(key);
     recordEvent("service.deleted", { serviceId });
