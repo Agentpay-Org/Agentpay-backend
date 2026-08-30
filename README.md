@@ -104,6 +104,24 @@ agentpay-backend/
 
 ## Commands
 
+### Charge idempotency
+
+`POST /api/v1/charges` accepts an optional `Idempotency-Key` header. Keys are
+scoped to the authenticated API-key tenant and expire after 24 hours. The
+first request atomically reserves the key before creating its charge. A retry
+with the same canonical request body returns the saved status and response,
+while a changed body returns `409 idempotency_conflict`. A request racing the
+reservation receives `409 request_in_progress`. Invalid keys are rejected with
+`400 invalid_request`; keys use only RFC 3986-safe characters and are limited
+to 255 characters.
+
+The shipped store is intentionally in-memory for this gateway. Deployments
+running multiple processes must provide a shared adapter implementing the
+`ChargeIdempotencyStore` contract before relying on exactly-once behavior
+across processes. Charge creation and the idempotency completion are kept in
+the same process boundary; failed creation releases the reservation so a
+client can safely retry.
+
 | Command          | Description                                 |
 | ---------------- | ------------------------------------------- |
 | `npm run build`  | Compile TypeScript to `dist/`               |

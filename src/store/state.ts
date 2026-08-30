@@ -1,4 +1,5 @@
 import { DEFAULT_TENANT_ID } from "../tenant.js";
+import type { ChargeRecord } from "../services/chargeReconciliation.js";
 
 /**
  * Mutable process-local stores used by the in-memory AgentPay API.
