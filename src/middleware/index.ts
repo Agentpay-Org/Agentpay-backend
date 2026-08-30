@@ -8,7 +8,13 @@ import express, {
 } from "express";
 import { verifyApiKey, timingSafeEqualSecret } from "../auth/apiKeys.js";
 import { logger, logRequestCompletion } from "../logger.js";
-import { config, apiKeyStore, pauseState, rateBuckets } from "../store/state.js";
+import {
+  config,
+  apiKeyStore,
+  pauseState,
+  rateBuckets,
+  type RateLimitBucket,
+} from "../store/state.js";
 import { recordHttpRequest } from "../metrics.js";
 import type { AgentPayRequest } from "../types.js";
 
@@ -110,7 +116,9 @@ function parseCorsOrigins(rawOrigins: string | undefined): Set<string> {
   for (const token of trimmed.split(",")) {
     const normalized = normalizeCorsOrigin(token);
     if (!normalized) {
-      console.warn(`Ignoring malformed CORS origin in CORS_ALLOWED_ORIGINS: ${token.trim()}`);
+      console.warn(
+        `Ignoring malformed CORS origin in CORS_ALLOWED_ORIGINS: ${token.trim()}`
+      );
       continue;
     }
     allowed.add(normalized);
@@ -205,10 +213,7 @@ const securityHeadersMiddleware = (
     "Strict-Transport-Security",
     "max-age=63072000; includeSubDomains; preload"
   );
-  res.setHeader(
-    "Permissions-Policy",
-    "geolocation=(), camera=(), microphone=()"
-  );
+  res.setHeader("Permissions-Policy", "geolocation=(), camera=(), microphone=()");
   res.setHeader(
     "Content-Security-Policy",
     "default-src 'none'; base-uri 'none'; connect-src 'none'; font-src 'none'; form-action 'none'; frame-ancestors 'none'; img-src 'none'; manifest-src 'none'; media-src 'none'; object-src 'none'; script-src 'none'; script-src-attr 'none'; style-src 'none'; worker-src 'none'"
@@ -314,37 +319,142 @@ function pauseGuardMiddleware(req: Request, res: Response, next: NextFunction): 
 
 /**
  * Builds a stable rate-limit key from the authenticated API key when present,
- * otherwise falling back to Express' trusted client IP.
+ * otherwise falling back to Express' trusted client IP. An unrecognized
+ * X-API-Key is deliberately not used as an identity: callers must not be able
+ * to mint unlimited buckets by changing an invalid header on every request.
  */
 export function deriveRateLimitKey(req: Request): string {
   const apiKeyHash = (req as AgentPayRequest).apiKeyHash;
   if (apiKeyHash) {
     return `api-key:${apiKeyHash}`;
   }
-  const suppliedKey = req.header("x-api-key");
-  if (suppliedKey) {
-    return `api-key-raw:${suppliedKey}`;
-  }
   return `ip:${req.ip ?? req.socket.remoteAddress ?? "unknown"}`;
 }
 
-/** Prunes stale rate-limit buckets without mutating active hit windows. */
+type RateLimitWindowState = {
+  estimatedCount: number;
+  resetAt: number;
+};
+
+function subWindowMs(windowMs: number): number {
+  // Each counter window is one configured limit period. The current and
+  // immediately previous windows are enough to estimate the rolling period;
+  // older windows have zero weight and can be discarded.
+  return Math.max(1, windowMs);
+}
+
+function emptyBucket(now: number, windowMs: number): RateLimitBucket {
+  const width = subWindowMs(windowMs);
+  // Anchor a new key at its first hit. This keeps Retry-After tied to the
+  // caller's actual window instead of an unrelated epoch boundary.
+  const currentWindowStart = now;
+  return {
+    currentWindowStart,
+    currentCount: 0,
+    previousWindowStart: currentWindowStart - width,
+    previousCount: 0,
+  };
+}
+
+/** Converts old timestamp seeds into compact state for compatibility. */
+function normalizeBucket(
+  value: RateLimitBucket | number[] | undefined,
+  now: number,
+  windowMs: number
+): RateLimitBucket {
+  if (!Array.isArray(value)) return value ?? emptyBucket(now, windowMs);
+
+  const oldestAllowed = now - windowMs;
+  const recentHits = value.filter((hit) => hit >= oldestAllowed && hit <= now);
+  if (recentHits.length === 0) return emptyBucket(now, windowMs);
+
+  // Legacy seeds do not carry a window anchor. Treat their retained hits as
+  // one current counter anchored at the oldest retained hit; this preserves
+  // the old "all recent requests count" behavior during a rolling upgrade.
+  const currentWindowStart = Math.min(...recentHits);
+  return {
+    currentWindowStart,
+    currentCount: recentHits.length,
+    previousWindowStart: currentWindowStart - subWindowMs(windowMs),
+    previousCount: 0,
+  };
+}
+
+/** Rolls a bucket forward, dropping subwindows older than the rolling window. */
+function rollBucket(bucket: RateLimitBucket, now: number, windowMs: number): void {
+  const width = subWindowMs(windowMs);
+  if (now < bucket.currentWindowStart + width) return;
+  const currentWindowStart = bucket.currentWindowStart + width;
+  if (now < bucket.currentWindowStart + 2 * width) {
+    bucket.previousWindowStart = bucket.currentWindowStart;
+    bucket.previousCount = bucket.currentCount;
+  } else {
+    bucket.previousWindowStart = now;
+    bucket.previousCount = 0;
+  }
+  bucket.currentWindowStart = currentWindowStart;
+  bucket.currentCount = 0;
+}
+
+function weightedCount(bucket: RateLimitBucket, now: number, windowMs: number): number {
+  const width = subWindowMs(windowMs);
+  const elapsed = Math.max(0, Math.min(width, now - bucket.currentWindowStart));
+  const previousWeight = 1 - elapsed / width;
+  return bucket.currentCount + bucket.previousCount * previousWeight;
+}
+
+function resetAtFor(
+  bucket: RateLimitBucket,
+  now: number,
+  windowMs: number,
+  limit?: number
+): number {
+  const width = subWindowMs(windowMs);
+  if (limit === undefined) return bucket.currentWindowStart + width;
+
+  if (bucket.currentCount >= limit) {
+    const decay =
+      bucket.currentCount === 0 ? width : width * (1 - limit / bucket.currentCount);
+    return bucket.currentWindowStart + width + Math.max(0, decay);
+  }
+  if (bucket.previousCount > 0 && bucket.currentCount + bucket.previousCount >= limit) {
+    const needed = limit - bucket.currentCount;
+    const elapsed = width * (1 - needed / bucket.previousCount);
+    return bucket.currentWindowStart + Math.max(0, elapsed);
+  }
+  return Math.max(now + 1, bucket.currentWindowStart + width);
+}
+
+function stateForKey(
+  key: string,
+  now: number,
+  windowMs: number,
+  limit?: number
+): RateLimitWindowState {
+  const bucket = normalizeBucket(rateBuckets.get(key), now, windowMs);
+  rollBucket(bucket, now, windowMs);
+  rateBuckets.set(key, bucket);
+  const estimatedCount = weightedCount(bucket, now, windowMs);
+  return {
+    estimatedCount,
+    resetAt: resetAtFor(bucket, now, windowMs, limit),
+  };
+}
+
+/** Prunes stale compact counters without scanning per-request timestamps. */
 export function pruneExpiredRateBuckets(now: number, windowMs: number): number {
-  const staleKeys: string[] = [];
-  for (const [key, hits] of rateBuckets.entries()) {
-    const recentHits = hits.filter((hit) => now - hit < windowMs);
-    if (recentHits.length === 0) {
-      staleKeys.push(key);
-      continue;
-    }
-    if (recentHits.length !== hits.length) {
-      rateBuckets.set(key, recentHits);
+  let pruned = 0;
+  for (const [key, value] of rateBuckets.entries()) {
+    const bucket = normalizeBucket(value, now, windowMs);
+    rollBucket(bucket, now, windowMs);
+    if (bucket.currentCount === 0 && bucket.previousCount === 0) {
+      rateBuckets.delete(key);
+      pruned += 1;
+    } else {
+      rateBuckets.set(key, bucket);
     }
   }
-  for (const key of staleKeys) {
-    rateBuckets.delete(key);
-  }
-  return staleKeys.length;
+  return pruned;
 }
 
 /** Records one rate-limit hit and returns whether the request is still allowed. */
@@ -355,19 +465,31 @@ export function applyRateLimitHit(
   rateLimitWindowMs: number
 ): { allowed: true } | { allowed: false; retryAfterSeconds: number } {
   pruneExpiredRateBuckets(now, rateLimitWindowMs);
-  const bucket = rateBuckets.get(key) ?? [];
-  if (bucket.length >= rateLimitPerWindow) {
-    const oldest = bucket[0] ?? now;
-    const retryAfterSeconds = Math.max(
-      1,
-      Math.ceil((rateLimitWindowMs - (now - oldest)) / 1000)
-    );
+  const state = stateForKey(key, now, rateLimitWindowMs, rateLimitPerWindow);
+  if (state.estimatedCount >= rateLimitPerWindow) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((state.resetAt - now) / 1000));
     return { allowed: false, retryAfterSeconds };
   }
 
-  bucket.push(now);
-  rateBuckets.set(key, bucket);
+  const bucket = rateBuckets.get(key);
+  if (Array.isArray(bucket) || bucket === undefined) {
+    const normalized = normalizeBucket(bucket, now, rateLimitWindowMs);
+    normalized.currentCount += 1;
+    rateBuckets.set(key, normalized);
+  } else {
+    bucket.currentCount += 1;
+  }
   return { allowed: true };
+}
+
+/** Returns the bounded estimate used to populate response headers. */
+export function getRateLimitWindowState(
+  key: string,
+  now: number,
+  windowMs: number,
+  rateLimitPerWindow?: number
+): RateLimitWindowState {
+  return stateForKey(key, now, windowMs, rateLimitPerWindow);
 }
 
 /** In-process rate limiter keyed by API key or trusted client IP. */
@@ -377,13 +499,10 @@ function rateLimitMiddleware(req: Request, res: Response, next: NextFunction): v
   const windowMs = config.rateLimitWindowMs;
   const key = deriveRateLimitKey(req);
   const now = Date.now();
-  const bucket = rateBuckets.get(key) ?? [];
   const allowed = applyRateLimitHit(key, now, perWindow, windowMs);
-  const remaining = Math.max(0, perWindow - (rateBuckets.get(key)?.length ?? 0));
-  const resetSeconds = Math.max(
-    1,
-    Math.ceil((windowMs - (now - (bucket[0] ?? now))) / 1000)
-  );
+  const state = getRateLimitWindowState(key, now, windowMs, perWindow);
+  const remaining = Math.max(0, Math.floor(perWindow - state.estimatedCount));
+  const resetSeconds = Math.max(1, Math.ceil((state.resetAt - now) / 1000));
 
   res.setHeader("RateLimit-Limit", String(perWindow));
   res.setHeader("RateLimit-Remaining", String(remaining));

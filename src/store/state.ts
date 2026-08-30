@@ -150,8 +150,25 @@ export const servicesMetadata = new Map<string, ServiceMetadataDto>();
 /** Registered webhooks and their event subscriptions. */
 export const webhookStore = new Map<string, WebhookRecord>();
 
-/** Rate-limiter windows keyed by authenticated API key digest or trusted IP. */
-export const rateBuckets = new Map<string, number[]>();
+/**
+ * Compact sliding-window state keyed by authenticated API key digest or
+ * trusted IP. Two adjacent subwindows provide a bounded-memory approximation
+ * of a rolling window without retaining one timestamp per request.
+ */
+export type RateLimitBucket = {
+  currentWindowStart: number;
+  currentCount: number;
+  previousWindowStart: number;
+  previousCount: number;
+};
+
+/**
+ * The union keeps test/admin callers source-compatible with the old seed
+ * format while runtime writes always use the compact RateLimitBucket shape.
+ * Legacy arrays are normalized on their next access and are never produced by
+ * the middleware.
+ */
+export const rateBuckets = new Map<string, RateLimitBucket | number[]>();
 
 /** Lifetime settlement counters for metrics and stats. */
 export const settlementCounters = {
