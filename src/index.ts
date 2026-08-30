@@ -15,6 +15,7 @@ import {
 import { createAdminRouter } from "./routes/admin.js";
 import { createApiKeysRouter } from "./routes/apiKeys.js";
 import { createConfigRouter } from "./routes/config.js";
+import { createChargesRouter } from "./routes/charges.js";
 import { installErrorHandlers } from "./routes/errors.js";
 import { createEventsRouter } from "./routes/events.js";
 import { createMetaRouter } from "./routes/meta.js";
@@ -136,6 +137,7 @@ function createApp(): Express {
 
   app.use(createMetaRouter());
   app.use(createUsageRouter({ stroopsAsNumber: true }));
+  app.use(createChargesRouter());
   app.use(createServicesRouter());
   app.use(createApiKeysRouter());
   app.use(createEventsRouter());

@@ -263,6 +263,10 @@ export function createMetaRouter(): Router {
         "/api/v1/billing/{agent}/{serviceId}": {
           get: { summary: "Quote billing for an agent/service pair" },
         },
+        "/api/v1/charges": {
+          get: { summary: "List tenant charges" },
+          post: { summary: "Create an idempotent charge" },
+        },
         "/api/v1/agents": { get: { summary: "List agents with usage" } },
         "/api/v1/agents/{agent}/total": {
           get: { summary: "Total outstanding usage for an agent" },

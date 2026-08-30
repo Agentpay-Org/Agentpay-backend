@@ -18,7 +18,12 @@ void describe("rate limit bucket pruning", () => {
     assert.strictEqual(pruned, 2);
     assert.strictEqual(rateBuckets.has("stale-a"), false);
     assert.strictEqual(rateBuckets.has("stale-b"), false);
-    assert.deepStrictEqual(rateBuckets.get("active"), [80_000]);
+    assert.deepStrictEqual(rateBuckets.get("active"), {
+      currentWindowStart: 80_000,
+      currentCount: 1,
+      previousWindowStart: 20_000,
+      previousCount: 0,
+    });
   });
 
   void it("bounds map size after churn from many one-shot IPs", () => {
@@ -30,7 +35,12 @@ void describe("rate limit bucket pruning", () => {
 
     assert.deepStrictEqual(decision, { allowed: true });
     assert.strictEqual(rateBuckets.size, 1);
-    assert.deepStrictEqual(rateBuckets.get("203.0.113.10"), [120_000]);
+    assert.deepStrictEqual(rateBuckets.get("203.0.113.10"), {
+      currentWindowStart: 120_000,
+      currentCount: 1,
+      previousWindowStart: 60_000,
+      previousCount: 0,
+    });
   });
 
   void it("does not reset an active limiter while pruning stale buckets", () => {
@@ -49,10 +59,15 @@ void describe("rate limit bucket pruning", () => {
       retryAfterSeconds: 60,
     });
     assert.strictEqual(rateBuckets.has("stale"), false);
-    assert.deepStrictEqual(rateBuckets.get("active"), [100_000, 100_001]);
+    assert.deepStrictEqual(rateBuckets.get("active"), {
+      currentWindowStart: 100_000,
+      currentCount: 2,
+      previousWindowStart: 40_000,
+      previousCount: 0,
+    });
   });
 
-  void it("starts a fresh bucket after an IP has been idle past the window", () => {
+  void it("retains weighted pressure from the immediately previous counter window", () => {
     assert.deepStrictEqual(applyRateLimitHit("198.51.100.50", 1_000, 60, 60_000), {
       allowed: true,
     });
@@ -60,6 +75,11 @@ void describe("rate limit bucket pruning", () => {
     const afterIdle = applyRateLimitHit("198.51.100.50", 120_000, 60, 60_000);
 
     assert.deepStrictEqual(afterIdle, { allowed: true });
-    assert.deepStrictEqual(rateBuckets.get("198.51.100.50"), [120_000]);
+    assert.deepStrictEqual(rateBuckets.get("198.51.100.50"), {
+      currentWindowStart: 61_000,
+      currentCount: 1,
+      previousWindowStart: 1_000,
+      previousCount: 1,
+    });
   });
 });
