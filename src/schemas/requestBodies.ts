@@ -195,6 +195,11 @@ const priceStroopsField = integerField("priceStroops must be a non-negative inte
   minimum: 0,
 });
 
+const expectedVersionField = integerField(
+  "expectedVersion must be a positive integer",
+  { minimum: 1 }
+);
+
 const runtimeConfigField = (
   key: string,
   max: number
@@ -260,9 +265,11 @@ export const requestBodySchemas = {
   serviceCreate: strictObjectSchema({
     serviceId: serviceIdField,
     priceStroops: priceStroopsField,
+    expectedVersion: { ...expectedVersionField, required: false },
   }),
   serviceDisabledPatch: strictObjectSchema({
     disabled: booleanField("disabled must be a boolean"),
+    expectedVersion: expectedVersionField,
   }),
   serviceMetadataPut: strictObjectSchema({
     description: stringField("description must be a string up to 256 chars", {
@@ -272,9 +279,11 @@ export const requestBodySchemas = {
       minLength: 1,
       maxLength: 256,
     }),
+    expectedVersion: expectedVersionField,
   }),
   servicePricePatch: strictObjectSchema({
     priceStroops: priceStroopsField,
+    expectedVersion: expectedVersionField,
   }),
   settle: strictObjectSchema({
     agent: stringField("agent and serviceId are required strings", {}),
