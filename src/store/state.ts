@@ -12,6 +12,19 @@ export type ApiKeyRecord = { label: string; createdAt: number; prefix: string };
 export type ServiceMetadataDto = { description: string; owner: string };
 export type WebhookRecord = { url: string; events: string[]; createdAt: number };
 
+export type WebhookSecretRecord = { secret: string; createdAt: number };
+
+export type DeadLetterRecord = {
+  deliveryId: string;
+  webhookId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  lastError: string;
+  attempts: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
 /** Mirrors the on-chain pause flag for write-gated endpoints. */
 export const pauseState = { paused: false };
 
@@ -151,8 +164,14 @@ export const servicesMetadata = new Map<string, ServiceMetadataDto>();
 /** Registered webhooks and their event subscriptions. */
 export const webhookStore = new Map<string, WebhookRecord>();
 
-/** Charge ledger records scanned by the side-effect-free reconciliation job. */
-export const chargeStore = new Map<string, ChargeRecord>();
+/** Signing secrets are kept separately so normal webhook reads never expose them. */
+export const webhookSecretStore = new Map<string, WebhookSecretRecord>();
+
+/** Exhausted webhook deliveries, keyed by stable delivery id. */
+export const webhookDeadLetterStore = new Map<string, DeadLetterRecord>();
+
+/** Delivery ids that have completed successfully; retries are idempotent. */
+export const webhookDeliveredStore = new Set<string>();
 
 /** Rate-limiter windows keyed by authenticated API key digest or trusted IP. */
 export const rateBuckets = new Map<string, number[]>();

@@ -12,6 +12,7 @@ import {
   servicesMetadata,
   servicesStore,
   usageStore,
+  webhookSecretStore,
   webhookStore,
 } from "./store/state.js";
 
@@ -53,6 +54,7 @@ beforeEach(() => {
   servicesStore.clear();
   usageStore.clear();
   webhookStore.clear();
+  webhookSecretStore.clear();
   Object.assign(config, defaultConfig);
 });
 
