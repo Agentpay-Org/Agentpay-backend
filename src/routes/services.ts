@@ -23,12 +23,13 @@ import { resolveTenantId } from "../tenant.js";
 import { getRequestId } from "../types.js";
 import { etagFor } from "../httpCache.js";
 import {
-  conflictResponse,
-  nextServiceVersion,
-  parseServiceVersion,
-  ServiceVersionConflictError,
-  versionForService,
-} from "../serviceVersioning.js";
+  compareServiceIds,
+  decodeServiceCursor,
+  encodeServiceCursor,
+  normalizeServicePageSize,
+  serviceListScope,
+  ServiceCursorError,
+} from "../serviceListPagination.js";
 
 type ServiceReadShape = {
   serviceId: string;
@@ -182,7 +183,11 @@ export function createServicesRouter(): Router {
     const requestId = getRequestId(req);
     const tenantId = resolveTenantId(req);
     const { items } = req.body ?? {};
-    if (!Array.isArray(items) || items.length === 0 || items.length > config.bulkMaxItems) {
+    if (
+      !Array.isArray(items) ||
+      items.length === 0 ||
+      items.length > config.bulkMaxItems
+    ) {
       res.status(400).json({
         error: "invalid_request",
         message: `items must be 1-${config.bulkMaxItems} entries`,
@@ -284,11 +289,7 @@ export function createServicesRouter(): Router {
 
     const key = serviceKey(tenantId, serviceId);
     const isNew = !servicesStore.has(key);
-    const currentVersion = serviceVersion(key);
-    if (!isNew && requireExpectedVersion(req, res, body, currentVersion) === undefined) return;
-    if (
-      !hasStoreCapacityFor(servicesStore.size, !isNew, config.servicesStoreMaxKeys)
-    ) {
+    if (!hasStoreCapacityFor(servicesStore.size, !isNew, config.servicesStoreMaxKeys)) {
       res.status(429).json({
         error: "store_capacity_exceeded",
         message: "service store capacity exceeded",
@@ -346,8 +347,7 @@ export function createServicesRouter(): Router {
       }
       items.sort(
         (a, b) =>
-          b.total - a.total ||
-          (a.agent < b.agent ? -1 : a.agent > b.agent ? 1 : 0)
+          b.total - a.total || (a.agent < b.agent ? -1 : a.agent > b.agent ? 1 : 0)
       );
       res.json({ serviceId, items: items.slice(0, limit) });
     }
@@ -387,42 +387,43 @@ export function createServicesRouter(): Router {
     res.json(serviceReadShape(tenantId, serviceId, meta));
   });
 
-  router.put("/api/v1/services/:serviceId/metadata", idempotency, (req: Request, res: Response) => {
-    const serviceId = String(req.params.serviceId);
-    const requestId = getRequestId(req);
-    const tenantId = resolveTenantId(req);
-    const key = serviceKey(tenantId, serviceId);
-    if (!servicesStore.has(key)) {
-      res.status(404).json({
-        error: "not_found",
-        message: `service ${serviceId} is not registered`,
-        requestId,
-      });
-      return;
+  router.put(
+    "/api/v1/services/:serviceId/metadata",
+    idempotency,
+    (req: Request, res: Response) => {
+      const serviceId = String(req.params.serviceId);
+      const requestId = getRequestId(req);
+      const tenantId = resolveTenantId(req);
+      const key = serviceKey(tenantId, serviceId);
+      if (!servicesStore.has(key)) {
+        res.status(404).json({
+          error: "not_found",
+          message: `service ${serviceId} is not registered`,
+          requestId,
+        });
+        return;
+      }
+      const { description, owner } = req.body ?? {};
+      if (typeof description !== "string" || description.length > 256) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: "description must be a string up to 256 chars",
+          requestId,
+        });
+        return;
+      }
+      if (typeof owner !== "string" || owner.length === 0 || owner.length > 256) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: "owner must be a non-empty string up to 256 chars",
+          requestId,
+        });
+        return;
+      }
+      servicesMetadata.set(key, { description, owner });
+      res.json({ serviceId, description, owner });
     }
-    const { description, owner } = req.body ?? {};
-    const currentVersion = serviceVersion(key);
-    if (requireExpectedVersion(req, res, req.body ?? {}, currentVersion) === undefined) return;
-    if (typeof description !== "string" || description.length > 256) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "description must be a string up to 256 chars",
-        requestId,
-      });
-      return;
-    }
-    if (typeof owner !== "string" || owner.length === 0 || owner.length > 256) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "owner must be a non-empty string up to 256 chars",
-        requestId,
-      });
-      return;
-    }
-    servicesMetadata.set(key, { description, owner });
-    nextServiceVersion(servicesVersions, key, currentVersion);
-    res.json({ serviceId, description, owner, version: serviceVersion(key) });
-  });
+  );
 
   router.get("/api/v1/services/:serviceId/metadata", (req: Request, res: Response) => {
     const serviceId = String(req.params.serviceId);
@@ -440,49 +441,51 @@ export function createServicesRouter(): Router {
     res.json({ serviceId, ...meta, version: serviceVersion(key) });
   });
 
-  /** Disables a registered service after a version-guarded read. */
-  router.post("/api/v1/services/:serviceId/disable", idempotency, (req: Request, res: Response) => {
-    const serviceId = String(req.params.serviceId);
-    const requestId = getRequestId(req);
-    const tenantId = resolveTenantId(req);
-    const key = serviceKey(tenantId, serviceId);
-    if (!servicesStore.has(key)) {
-      res.status(404).json({
-        error: "not_found",
-        message: `service ${serviceId} is not registered`,
-        requestId,
-      });
-      return;
+  /** Idempotently disables a registered service and emits an audit event. */
+  router.post(
+    "/api/v1/services/:serviceId/disable",
+    idempotency,
+    (req: Request, res: Response) => {
+      const serviceId = String(req.params.serviceId);
+      const requestId = getRequestId(req);
+      const tenantId = resolveTenantId(req);
+      const key = serviceKey(tenantId, serviceId);
+      if (!servicesStore.has(key)) {
+        res.status(404).json({
+          error: "not_found",
+          message: `service ${serviceId} is not registered`,
+          requestId,
+        });
+        return;
+      }
+      servicesDisabled.add(key);
+      recordEvent("service.disabled", { serviceId, tenantId });
+      res.json({ serviceId, disabled: true });
     }
-    const currentVersion = serviceVersion(key);
-    if (requireExpectedVersion(req, res, req.body ?? {}, currentVersion) === undefined) return;
-    servicesDisabled.add(key);
-    nextServiceVersion(servicesVersions, key, currentVersion);
-    recordEvent("service.disabled", { serviceId, tenantId });
-    res.json({ serviceId, disabled: true, version: serviceVersion(key) });
-  });
+  );
 
-  /** Enables a registered service after a version-guarded read. */
-  router.post("/api/v1/services/:serviceId/enable", idempotency, (req: Request, res: Response) => {
-    const serviceId = String(req.params.serviceId);
-    const requestId = getRequestId(req);
-    const tenantId = resolveTenantId(req);
-    const key = serviceKey(tenantId, serviceId);
-    if (!servicesStore.has(key)) {
-      res.status(404).json({
-        error: "not_found",
-        message: `service ${serviceId} is not registered`,
-        requestId,
-      });
-      return;
+  /** Idempotently enables a registered service and emits an audit event. */
+  router.post(
+    "/api/v1/services/:serviceId/enable",
+    idempotency,
+    (req: Request, res: Response) => {
+      const serviceId = String(req.params.serviceId);
+      const requestId = getRequestId(req);
+      const tenantId = resolveTenantId(req);
+      const key = serviceKey(tenantId, serviceId);
+      if (!servicesStore.has(key)) {
+        res.status(404).json({
+          error: "not_found",
+          message: `service ${serviceId} is not registered`,
+          requestId,
+        });
+        return;
+      }
+      servicesDisabled.delete(key);
+      recordEvent("service.enabled", { serviceId, tenantId });
+      res.json({ serviceId, disabled: false });
     }
-    const currentVersion = serviceVersion(key);
-    if (requireExpectedVersion(req, res, req.body ?? {}, currentVersion) === undefined) return;
-    servicesDisabled.delete(key);
-    nextServiceVersion(servicesVersions, key, currentVersion);
-    recordEvent("service.enabled", { serviceId, tenantId });
-    res.json({ serviceId, disabled: false, version: serviceVersion(key) });
-  });
+  );
 
   router.patch(
     "/api/v1/services/:serviceId/disabled",
@@ -519,36 +522,38 @@ export function createServicesRouter(): Router {
     }
   );
 
-  router.patch("/api/v1/services/:serviceId/price", idempotency, (req: Request, res: Response) => {
-    const serviceId = String(req.params.serviceId);
-    const requestId = getRequestId(req);
-    const tenantId = resolveTenantId(req);
-    const key = serviceKey(tenantId, serviceId);
-    const meta = servicesStore.get(key);
-    if (!meta) {
-      res.status(404).json({
-        error: "not_found",
-        message: `service ${serviceId} is not registered`,
-        requestId,
-      });
-      return;
+  router.patch(
+    "/api/v1/services/:serviceId/price",
+    idempotency,
+    (req: Request, res: Response) => {
+      const serviceId = String(req.params.serviceId);
+      const requestId = getRequestId(req);
+      const tenantId = resolveTenantId(req);
+      const key = serviceKey(tenantId, serviceId);
+      const meta = servicesStore.get(key);
+      if (!meta) {
+        res.status(404).json({
+          error: "not_found",
+          message: `service ${serviceId} is not registered`,
+          requestId,
+        });
+        return;
+      }
+      const { priceStroops } = req.body ?? {};
+      if (!isSafePrice(priceStroops)) {
+        res.status(400).json({
+          error: "invalid_request",
+          message:
+            "priceStroops must be a non-negative integer within supported bounds",
+          requestId,
+        });
+        return;
+      }
+      meta.priceStroops = priceStroops;
+      servicesStore.set(key, meta);
+      res.json({ serviceId, ...meta });
     }
-    const { priceStroops } = req.body ?? {};
-    const currentVersion = serviceVersion(key);
-    if (requireExpectedVersion(req, res, req.body ?? {}, currentVersion) === undefined) return;
-    if (!isSafePrice(priceStroops)) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: "priceStroops must be a non-negative integer within supported bounds",
-        requestId,
-      });
-      return;
-    }
-    meta.priceStroops = priceStroops;
-    servicesStore.set(key, meta);
-    nextServiceVersion(servicesVersions, key, currentVersion);
-    res.json({ serviceId, ...meta, version: serviceVersion(key) });
-  });
+  );
 
   router.delete("/api/v1/services/:serviceId", (req: Request, res: Response) => {
     const serviceId = String(req.params.serviceId);
@@ -577,11 +582,7 @@ export function createServicesRouter(): Router {
     const tenantId = resolveTenantId(req);
     const prefix = typeof req.query.prefix === "string" ? req.query.prefix : "";
     const q = typeof req.query.q === "string" ? req.query.q.toLowerCase() : "";
-    const limit = parseIntParam(req.query.limit, {
-      defaultValue: 200,
-      min: 1,
-      max: 1000,
-    });
+    const limit = normalizeServicePageSize(req.query.limit);
     const disabledFilter =
       req.query.disabled === "true"
         ? true
@@ -590,6 +591,13 @@ export function createServicesRouter(): Router {
           : undefined;
     const minPrice = parseOptionalInteger(req.query.minPrice);
     const maxPrice = parseOptionalInteger(req.query.maxPrice);
+    const scope = serviceListScope(tenantId, {
+      prefix,
+      q,
+      disabled: disabledFilter,
+      minPrice,
+      maxPrice,
+    });
     const services: ServiceReadShape[] = [];
     for (const [key, meta] of servicesStore.entries()) {
       const parsed = parseServiceKey(key);
@@ -602,9 +610,49 @@ export function createServicesRouter(): Router {
       if (minPrice !== undefined && meta.priceStroops < minPrice) continue;
       if (maxPrice !== undefined && meta.priceStroops > maxPrice) continue;
       services.push(serviceReadShape(tenantId, serviceId, meta));
-      if (services.length >= limit) break;
     }
-    const body = JSON.stringify({ services });
+    services.sort((left, right) => compareServiceIds(left.serviceId, right.serviceId));
+
+    const cursor = req.query.cursor;
+    const offset =
+      cursor === undefined
+        ? parseIntParam(req.query.offset, {
+            defaultValue: 0,
+            min: 0,
+            max: Number.MAX_SAFE_INTEGER,
+          })
+        : 0;
+    let startIndex = offset;
+    if (cursor !== undefined) {
+      try {
+        const serviceId = decodeServiceCursor(cursor, scope);
+        const cursorIndex = services.findIndex(
+          (service) => service.serviceId === serviceId
+        );
+        if (cursorIndex === -1) throw new ServiceCursorError("cursor is expired");
+        startIndex = cursorIndex + 1;
+      } catch (error) {
+        if (error instanceof ServiceCursorError) {
+          res.status(400).json({
+            error: "invalid_request",
+            code: error.code,
+            message: error.message,
+            requestId: getRequestId(req),
+          });
+          return;
+        }
+        throw error;
+      }
+    }
+
+    const page = services.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + page.length < services.length;
+    const nextCursor =
+      hasMore && page.length > 0
+        ? encodeServiceCursor(page[page.length - 1].serviceId, scope)
+        : null;
+    const bodyShape = { services: page, total: services.length, limit, nextCursor };
+    const body = JSON.stringify(bodyShape);
     const etag = etagFor(body);
     if (req.header("if-none-match") === etag) {
       res.status(304).end();
