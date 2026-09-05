@@ -263,14 +263,18 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
     }
   );
 
-  router.post("/api/v1/settle", idempotency, (req: Request, res: Response) => {
-    const { agent, serviceId } = req.body ?? {};
-    const tenantId = resolveTenantId(req);
-    const agentValidation = validateAgentRequest(agent);
-    if (!agentValidation.ok || !isValidServiceId(serviceId)) {
-      invalidIdentifiers(req, res);
-      return;
-    }
+  router.post(
+    "/api/v1/settle",
+    idempotency,
+    validateBody(requestBodySchemas.settle),
+    (req: Request, res: Response) => {
+      const { agent, serviceId } = req.body ?? {};
+      const tenantId = resolveTenantId(req);
+      const agentValidation = validateAgentRequest(agent);
+      if (!agentValidation.ok || !isValidServiceId(serviceId)) {
+        invalidIdentifiers(req, res);
+        return;
+      }
     const key = usageKey(tenantId, agentValidation.value, serviceId);
     const requests = usageStore.get(key) ?? 0;
     const price = servicesStore.get(serviceKey(tenantId, serviceId))?.priceStroops ?? 0;
@@ -298,19 +302,23 @@ export function createUsageRouter(options: UsageRouterOptions = {}): Router {
    * Drains every outstanding service for a single agent in one settlement pass.
    * Unregistered services are settled at a zero price so their counters clear.
    */
-  router.post("/api/v1/settle/bulk", idempotency, (req: Request, res: Response) => {
-    const { agent } = req.body ?? {};
-    const requestId = getRequestId(req);
-    const tenantId = resolveTenantId(req);
-    const agentValidation = validateAgentRequest(agent);
-    if (!agentValidation.ok) {
-      res.status(400).json({
-        error: "invalid_request",
-        message: agentValidation.message,
-        requestId,
-      });
-      return;
-    }
+  router.post(
+    "/api/v1/settle/bulk",
+    idempotency,
+    validateBody(requestBodySchemas.settleBulk),
+    (req: Request, res: Response) => {
+      const { agent } = req.body ?? {};
+      const requestId = getRequestId(req);
+      const tenantId = resolveTenantId(req);
+      const agentValidation = validateAgentRequest(agent);
+      if (!agentValidation.ok) {
+        res.status(400).json({
+          error: "invalid_request",
+          message: agentValidation.message,
+          requestId,
+        });
+        return;
+      }
     const entries = tenantUsageEntries(tenantId).filter(
       (e) => e.agent === agentValidation.value
     );

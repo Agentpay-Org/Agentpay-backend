@@ -4,7 +4,6 @@ import {
   chargeFingerprint,
   InMemoryChargeIdempotencyStore,
   InMemoryChargeStore,
-  validateChargeInput,
   validateIdempotencyKey,
 } from "../charges.js";
 import { resolveTenantId } from "../tenant.js";
@@ -16,6 +15,8 @@ import {
   paymentValidationError,
 } from "../errors/domainError.js";
 import { paymentErrorHandler } from "../middleware/paymentErrorHandler.js";
+import { validateBody } from "../middleware/validate.js";
+import { requestBodySchemas } from "../schemas/requestBodies.js";
 
 export type ChargesRouterOptions = {
   idempotencyStore?: InMemoryChargeIdempotencyStore;
@@ -28,14 +29,13 @@ export function createChargesRouter(options: ChargesRouterOptions = {}): Router 
     options.idempotencyStore ?? new InMemoryChargeIdempotencyStore();
   const chargeStore = options.chargeStore ?? new InMemoryChargeStore();
 
-  router.post("/api/v1/charges", (req: Request, res: Response, next: NextFunction) => {
-    const requestId = paymentRequestId(req);
-    const tenantId = resolveTenantId(req);
-    const parsed = validateChargeInput(req.body);
-    if (!parsed.ok) {
-      next(paymentValidationError(parsed.message));
-      return;
-    }
+  router.post(
+    "/api/v1/charges",
+    validateBody(requestBodySchemas.chargeCreate),
+    (req: Request, res: Response, next: NextFunction) => {
+      const requestId = paymentRequestId(req);
+      const tenantId = resolveTenantId(req);
+      const parsed = { ok: true as const, value: req.body };
 
     const suppliedKey = req.header("idempotency-key");
     if (
