@@ -31,8 +31,9 @@ export function validateBody(schema: BodySchema) {
     const parsed = schema.parse(req.body);
     if (!parsed.ok) {
       res.status(400).json({
-        error: "invalid_request",
+        error: "validation_error",
         message: parsed.message,
+        ...(parsed.details && { details: parsed.details }),
         requestId: getRequestId(req),
       });
       return;

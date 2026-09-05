@@ -1,9 +1,16 @@
 type JsonObject = Record<string, unknown>;
 
+export type ValidationDetail = {
+  field: string;
+  message: string;
+};
+
 export type BodySchema = {
   parse(
     body: unknown
-  ): { ok: true; value: JsonObject } | { ok: false; message: string };
+  ):
+    | { ok: true; value: JsonObject }
+    | { ok: false; message: string; details?: ValidationDetail[] };
   openApi: JsonObject;
 };
 
@@ -28,23 +35,37 @@ function strictObjectSchema(fields: Record<string, FieldSchema>): BodySchema {
       const allowed = new Set(Object.keys(fields));
       for (const key of Object.keys(value)) {
         if (!allowed.has(key)) {
-          return { ok: false, message: `unexpected field: ${key}` };
+          return {
+            ok: false,
+            message: `unexpected field: ${key}`,
+            details: [{ field: key, message: "unexpected field" }],
+          };
         }
       }
 
+      const details: ValidationDetail[] = [];
       for (const [key, field] of Object.entries(fields)) {
         const fieldValue = value[key];
         if (fieldValue === undefined) {
           if (field.required) {
-            return {
-              ok: false,
+            details.push({
+              field: key,
               message: field.validate(fieldValue) ?? `${key} is required`,
-            };
+            });
           }
           continue;
         }
         const message = field.validate(fieldValue);
-        if (message) return { ok: false, message };
+        if (message) {
+          details.push({ field: key, message });
+        }
+      }
+      if (details.length > 0) {
+        return {
+          ok: false,
+          message: details.map((d) => `${d.field}: ${d.message}`).join("; "),
+          details,
+        };
       }
 
       return { ok: true, value };
@@ -312,6 +333,41 @@ export const requestBodySchemas = {
     events: stringArrayField("events must be a non-empty array of strings", {
       required: false,
       minItems: 1,
+    }),
+  }),
+  chargeCreate: strictObjectSchema({
+    amount: integerField("amount must be a positive safe integer", {
+      min: 1,
+      max: Number.MAX_SAFE_INTEGER,
+    }),
+    currency: stringField("currency must be a three-letter uppercase code", {
+      minLength: 3,
+      maxLength: 3,
+      pattern: "^[A-Z]{3}$",
+    }),
+    source: stringField("source must be 1-256 characters", {
+      minLength: 1,
+      maxLength: 256,
+    }),
+    description: stringField("description must be at most 500 characters", {
+      required: false,
+      maxLength: 500,
+    }),
+  }),
+  settle: strictObjectSchema({
+    agent: stringField("agent must be a non-empty string up to 256 chars", {
+      minLength: 1,
+      maxLength: 256,
+    }),
+    serviceId: stringField("serviceId must be a non-empty string up to 256 chars", {
+      minLength: 1,
+      maxLength: 256,
+    }),
+  }),
+  settleBulk: strictObjectSchema({
+    agent: stringField("agent must be a non-empty string up to 256 chars", {
+      minLength: 1,
+      maxLength: 256,
     }),
   }),
 } satisfies Record<string, BodySchema>;
