@@ -177,10 +177,21 @@ export const webhookDeadLetterStore = new Map<string, DeadLetterRecord>();
 export const webhookDeliveredStore = new Set<string>();
 
 /** Rate-limiter windows keyed by authenticated API key digest or trusted IP. */
-export const rateBuckets = new Map<string, number[]>();
+export const rateBuckets = new Map<string, RateLimitBucket | number[]>();
 
 /** Lifetime settlement counters for metrics and stats. */
 export const settlementCounters = {
   settledStroopsTotal: 0,
   settlementsTotal: 0,
 };
+
+/** Compact two-subwindow sliding counter used by the rate limiter. */
+export type RateLimitBucket = {
+  currentWindowStart: number;
+  currentCount: number;
+  previousWindowStart: number;
+  previousCount: number;
+};
+
+/** In-memory charge ledger consumed by the reconciliation job. */
+export const chargeStore = new Map<string, ChargeRecord>();

@@ -23,6 +23,13 @@ import { resolveTenantId } from "../tenant.js";
 import { getRequestId } from "../types.js";
 import { etagFor } from "../httpCache.js";
 import {
+  conflictResponse,
+  nextServiceVersion,
+  parseServiceVersion,
+  ServiceVersionConflictError,
+  versionForService,
+} from "../serviceVersioning.js";
+import {
   compareServiceIds,
   decodeServiceCursor,
   encodeServiceCursor,
@@ -299,7 +306,7 @@ export function createServicesRouter(): Router {
     }
     servicesStore.set(key, { priceStroops });
     if (isNew) servicesVersions.set(key, 1);
-    else nextServiceVersion(servicesVersions, key, currentVersion);
+    else nextServiceVersion(servicesVersions, key, serviceVersion(key));
     if (metadata) {
       servicesMetadata.set(key, metadata);
     }
@@ -506,7 +513,7 @@ export function createServicesRouter(): Router {
       }
       const { disabled } = req.body ?? {};
       const currentVersion = serviceVersion(key);
-      if (requireExpectedVersion(req, res, req.body ?? {}, currentVersion) === undefined) return;
+      if (requireExpectedVersion(req, res, (req.body ?? {}) as Record<string, unknown>, currentVersion) === undefined) return;
       if (typeof disabled !== "boolean") {
         res.status(400).json({
           error: "invalid_request",

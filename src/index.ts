@@ -19,6 +19,7 @@ import { createChargesRouter } from "./routes/charges.js";
 import { installErrorHandlers } from "./routes/errors.js";
 import { createEventsRouter } from "./routes/events.js";
 import { createMetaRouter } from "./routes/meta.js";
+import { createDocsRouter } from "./routes/docs.js";
 import { createMetricsRouter } from "./routes/metrics.js";
 import { createServicesRouter } from "./routes/services.js";
 import { createUsageRouter } from "./routes/usage.js";
@@ -135,6 +136,7 @@ function createApp(): Express {
 
   installRequestStateMiddleware(app);
 
+  app.use(createDocsRouter());
   app.use(createMetaRouter());
   app.use(createUsageRouter({ stroopsAsNumber: true }));
   app.use(createChargesRouter());
@@ -186,6 +188,7 @@ function resolvePort(
 
 /** Returns true when this module is the launched server entrypoint. */
 function isServerEntrypoint(argv = process.argv): boolean {
+  if (process.env.VERCEL) return false;
   const entrypoint = argv[1] ?? "";
   return entrypoint.endsWith("index.js") || entrypoint.endsWith("index.ts");
 }

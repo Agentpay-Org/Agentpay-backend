@@ -55,11 +55,25 @@ export function createMetricsRouter(): Router {
     res.send(lines.join("\n") + "\n");
   });
 
-  router.get("/api/v1/stats", rejectUnknownQueryParams([]), (_req, _res: Response) => {
+  router.get("/api/v1/stats", rejectUnknownQueryParams([]), (_req, res: Response) => {
     const agents = new Set<string>();
-    for (const { agent } of scanUsageStore()) {
+    let outstandingRequests = 0;
+    for (const { agent, total } of scanUsageStore()) {
       agents.add(agent);
+      outstandingRequests += total;
     }
+    res.json({
+      services: servicesStore.size,
+      agents: agents.size,
+      apiKeys: apiKeyStore.size,
+      webhooks: webhookStore.size,
+      usageKeys: usageStore.size,
+      outstandingRequests,
+      lifetimeRequests,
+      settledStroopsTotal: settlementCounters.settledStroopsTotal,
+      settlementsTotal: settlementCounters.settlementsTotal,
+      paused: pauseState.paused,
+    });
   });
 
   return router;
