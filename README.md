@@ -1,6 +1,25 @@
 # AgentPay Backend
 
+## Live
+
+| | |
+| --- | --- |
+| Website | https://agentpay-frontend-ashy.vercel.app |
+| Docs | https://agentpay-frontend-ashy.vercel.app/docs |
+| API | https://agentpay-backend-red.vercel.app ([API docs](https://agentpay-backend-red.vercel.app/docs), [health](https://agentpay-backend-red.vercel.app/health)) |
+| Contract (testnet) | [`CAWQI63RISS2AXF2YSH77RQGUMVMXIAJUIDBW4DTVSTYU2L5TLCAMXNU`](https://stellar.expert/explorer/testnet/contract/CAWQI63RISS2AXF2YSH77RQGUMVMXIAJUIDBW4DTVSTYU2L5TLCAMXNU) |
+
 API gateway, metering, and billing backend for the AgentPay protocol (machine-to-machine payments on Stellar).
+
+## Deploying to Vercel
+
+The Express app is exported from `dist/index.js` and wrapped by `api/index.js` as a single serverless function; `vercel.json` rewrites every path to it. `app.listen` only runs when the file is started directly (never on Vercel). State is in-memory and resets on cold start.
+
+```bash
+vercel deploy --prod
+```
+
+Useful endpoints: `/` (endpoint index JSON), `/docs` (Swagger UI), `/health`, `/api/v1/openapi.json`. Set `CORS_ALLOWED_ORIGINS` to the dashboard origin(s).
 
 ## Overview
 
