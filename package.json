@@ -4,9 +4,9 @@
   "description": "AgentPay API gateway, metering, and billing backend",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts",
+    "build": "node init && tsc",
+    "start": "node init && node dist/index.js",
+    "dev": "node init && ts-node src/index.ts",
     "test": "npm run build && cross-env NODE_ENV=test node --test dist/*.test.js dist/**/*.test.js",
     "lint": "eslint .",
     "format": "prettier --check ."
